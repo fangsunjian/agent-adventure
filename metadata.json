@@ -1,5 +1,5 @@
 {
-  "name": "agent-adventure",
-  "description": "agent-adventure",
+  "name": "Advanced Gemini Adventure",
+  "description": "A dynamic text adventure game where the story and visuals are generated in real-time by AI, using Gemini for narrative and Imagen for illustrations.",
   "requestFramePermissions": []
 }

@@ -1,0 +1,17 @@
+{
+  "name": "Advanced Gemini Adventure",
+  "short_name": "Gemini Adventure",
+  "description": "A dynamic text adventure game where the story and visuals are generated in real-time by AI.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#18181b",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

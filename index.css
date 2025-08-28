@@ -1,0 +1,17 @@
+/* This file is created to resolve a build and runtime error. You can add global styles here if needed. */
+
+/* Responsive Bottom Navigation and Content Padding */
+.bottom-nav-wrapper {
+  /* Adds a 1rem gap from the bottom of the viewport, plus accounts for the device's home bar / safe area. */
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+
+.main-content-area {
+  /*
+    Calculates bottom padding to prevent content from being hidden by the fixed bottom nav bar.
+    - 4rem: height of the nav bar (h-16)
+    - 1rem: bottom gap from .bottom-nav-wrapper's padding
+    - 0.75rem: extra buffer space for better visual separation
+  */
+  padding-bottom: calc(4rem + 1rem + 0.75rem + env(safe-area-inset-bottom)); /* Total: 5.75rem */
+}

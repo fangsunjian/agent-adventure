@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- PWA and Mobile enhancements -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/vite.svg">
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#18181b" />
+
+    <title>Gemini Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              serif: ['EB Garamond', 'serif'],
+            },
+          },
+        },
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Inter:wght@400;500;70ax_0..900&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.1/",
+    "react": "https://esm.sh/react@^19.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.15.0",
+    "marked": "https://esm.sh/marked@^14.0.0",
+    "dompurify": "https://esm.sh/dompurify@^3.1.6",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.0.1",
+    "vite": "https://esm.sh/vite@^7.1.3",
+    "process": "https://esm.sh/process@^0.11.10",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.45.1"
+  }
+}
+</script>
+<style>
+    /* Prevent pull-to-refresh and ensure full height on mobile */
+    html, body, #root {
+      height: 100dvh;
+    }
+    body {
+      overflow: hidden; /* This prevents pull-to-refresh and bouncing scroll */
+    }
+    /* Custom Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 10px;
+    }
+    .dark ::-webkit-scrollbar-track {
+      background: #18181b; /* zinc-900 */
+    }
+    html:not(.dark) ::-webkit-scrollbar-track {
+      background: #f4f4f5; /* zinc-100 */
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: #52525b; /* zinc-600 */
+      border-radius: 5px;
+    }
+    html:not(.dark) ::-webkit-scrollbar-thumb {
+        background: #d4d4d8; /* zinc-300 */
+        border-radius: 5px;
+    }
+    .dark ::-webkit-scrollbar-thumb:hover {
+      background: #71717a; /* zinc-500 */
+    }
+    html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+      background: #a1a1aa; /* zinc-400 */
+    }
+
+    /* Markdown Content Styling */
+    .markdown-content p { margin-bottom: 0.75em; }
+    .markdown-content p:last-child { margin-bottom: 0; }
+    .markdown-content ul, .markdown-content ol { margin-left: 1.5em; margin-bottom: 0.75em; list-style: revert; }
+    .markdown-content li { margin-bottom: 0.25em; }
+    .markdown-content strong { font-weight: 600; }
+    .markdown-content em { font-style: italic; }
+    html:not(.dark) .markdown-content strong { color: #18181b; }
+    html:not(.dark) .markdown-content em { color: #3f3f46; }
+    .dark .markdown-content strong { color: #f4f4f5; }
+    .dark .markdown-content em { color: #d4d4d8; }
+  </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="font-sans bg-gray-100 text-gray-800 dark:bg-zinc-950 dark:text-zinc-200">
+    <div id="root"></div>
+    <script>
+      // Set to true to enable the debug panel, false to disable it.
+      window.DEBUG_MODE = true;
+    </script>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
