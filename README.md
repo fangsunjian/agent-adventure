@@ -1,40 +1,216 @@
-# Gemini Adventure
+# Agent Adventure
 
-**Last Updated: 2024-08-03**
+**Last Updated: 2025-01-28**
 
-A dynamic text adventure game platform powered by AI. This application uses Google's Gemini for narrative generation and Imagen for illustrations, creating a unique and immersive storytelling experience.
+Agent Adventure 是一个由 AI 驱动的动态文字冒险游戏社区平台。该应用使用 Google Gemini 生成叙述内容和 Imagen 生成插图，为用户创造独特且沉浸式的故事体验。
 
-Originally a single-player game, Gemini Adventure is evolving into a community-driven platform where users can create their own rich, interactive stories, share them with others, and play adventures crafted by the community.
+从最初的单人游戏发展为社区驱动的平台，用户可以创建丰富的交互式故事，与他人分享，并体验社区创作的冒险内容。
 
-## Core Features
+## 项目概述
 
--   **Dynamic Storytelling**: The AI generates a rich story in real-time based on player choices.
--   **AI-Generated Visuals**: Each scene can be accompanied by a beautiful, AI-generated image.
--   **Save/Load Progress**: The platform now automatically saves your progress for each story you play.
--   **Flexible AI Backend**: Use Google Gemini by default or switch to a custom OpenAI-compatible API endpoint.
--   **Multi-language Support**: The interface is available in both English and Chinese.
+Agent Adventure 是一个基于 React + TypeScript 构建的现代 Web 应用，集成了 Supabase 作为后端服务，提供用户认证、数据存储和社区功能。
 
-## Latest Changes
+### 技术架构
 
-### UI/UX Refinements
+**前端技术栈：**
+- React 19.1.1 + TypeScript
+- Vite 作为构建工具
+- CSS-in-JS 响应式设计
+- PWA 支持（渐进式 Web 应用）
 
-This update focuses on polishing the user interface and improving the overall user experience for a more immersive and professional feel.
+**后端服务：**
+- Supabase (PostgreSQL 数据库)
+- 用户认证和授权 (Row Level Security)
+- 实时数据同步
 
--   **Dedicated Game View**: The game screen is no longer part of the main navigation. It now launches as a dedicated, full-screen experience when you start a story, removing distractions and focusing the player on the adventure.
--   **Graceful Image Loading**:
-    -   Story cards now display a placeholder while loading cover images. If an image URL is invalid, a "no image" icon is shown, preventing broken UI elements.
-    -   The game's background image now loads gracefully, only appearing once ready and falling back to a solid color if it fails to load.
--   **Consistent Aesthetics**: Confirmation dialogs have been restyled with a semi-transparent "glassmorphism" effect, matching the look and feel of the game screen for a cohesive design.
--   **Optimized Layout**: The "What do you do next?" prompt on the game screen has been relocated to a more subtle position, freeing up valuable vertical space for the story narrative.
+**AI 集成：**
+- Google Gemini API (文本生成)
+- Google Imagen API (图片生成)
+- 自定义 OpenAI 兼容端点支持
 
-### Integrated Gameplay and Progress Saving
+### 核心功能
 
-This update fully integrates the creation and gameplay experiences, making the platform feel cohesive and alive.
+**🎮 动态故事生成**
+- AI 根据玩家选择实时生成丰富的故事内容
+- 支持多轮对话和复杂剧情分支
+- 智能的故事总结和里程碑记录系统
 
--   **Click-to-Play**: Clicking a story card on the "Home" or "Explore" pages now immediately starts the adventure in a redesigned game interface.
--   **Automatic Game Saves**: Your progress in each story (history, summaries, turn number) is automatically saved to your browser. The "Profile" page now features a "Recently Played" section where you can continue your adventures or delete saved progress.
--   **Dynamic Game Environment**: The game screen now uses the story's cover image as an immersive background, and all game content (background, characters, opening scene) is loaded directly from the selected story's data. The old generic start screen has been removed.
--   **Refined UI**:
-    -   Global settings and the theme toggle have been moved to the "Profile" page for a cleaner in-game experience.
-    -   Story creators can now specify a custom cover image URL for their creations.
--   **Enriched Content**: The initial sample stories have been fleshed out with detailed library cards, settings, and opening monologues to showcase the platform's capabilities.
+**🎨 AI 生成视觉内容**
+- 每个场景可配备精美的 AI 生成图片
+- 动态背景和封面图片支持
+- 优雅的图片加载和错误处理
+
+**👥 社区平台**
+- 用户注册、登录、个人资料管理
+- 故事创作、编辑、发布和分享
+- 公开/私有故事访问控制
+- 故事分类和搜索功能
+
+**📚 资料库系统**
+- 丰富的资料卡管理（角色、地点、道具、任务等）
+- 智能引用和占位符替换
+- 支持自定义资料卡类型
+
+**💾 进度保存**
+- 自动游戏进度保存到数据库
+- 跨设备同步游戏状态
+- 最近游玩记录管理
+
+**⚙️ 高度自定义**
+- 灵活的 AI 后端配置（Gemini/自定义端点）
+- 丰富的 LLM 参数调节（温度、Top-P、Top-K 等）
+- UI 主题、缩放、透明度个性化设置
+- 中英双语界面支持
+
+### 应用结构
+
+```
+agent-adventure/
+├── components/           # React 组件
+│   ├── ActionsPanel.tsx     # 游戏操作面板
+│   ├── BottomNavBar.tsx     # 底部导航栏
+│   ├── SceneDisplay.tsx     # 场景展示组件
+│   ├── StoryCard.tsx        # 故事卡片组件
+│   └── ...
+├── pages/               # 页面组件
+│   ├── HomePage.tsx         # 主页
+│   ├── ExplorePage.tsx      # 探索页
+│   ├── CreatePage.tsx       # 创作页
+│   ├── GamePage.tsx         # 游戏页
+│   ├── ProfilePage.tsx      # 个人资料页
+│   └── AuthPage.tsx         # 认证页面
+├── services/            # 服务层
+│   ├── aiService.ts         # AI 服务接口
+│   ├── geminiService.ts     # Gemini API 集成
+│   └── supabaseClient.ts    # Supabase 客户端
+├── contexts/            # React Context
+│   └── AuthContext.tsx      # 认证上下文
+├── hooks/               # 自定义 Hooks
+│   └── useLocalStorage.ts   # 本地存储 Hook
+├── types.ts             # TypeScript 类型定义
+├── constants.ts         # 常量和配置
+└── supabase/            # 数据库相关
+    └── migrations/          # 数据库迁移文件
+```
+
+### 数据模型
+
+**Stories 表（故事）**
+- 基本信息：标题、描述、封面、分类、可见性
+- 创作内容：资料库、背景设定、开场白
+- 关系：创作者 ID、创建时间
+
+**Profiles 表（用户资料）**
+- 用户基本信息：用户名、头像
+- 关系：对应 Supabase Auth 用户
+
+**Playthroughs 表（游戏进度）**
+- 游戏状态：对话历史、回合数、角色名
+- 总结数据：故事总结、里程碑记录
+- 关系：用户 ID、故事 ID
+
+**Library Cards（资料卡）**
+- 类型：角色、地点、道具、任务、设定、自定义
+- 内容：名称、描述、关键词、AI 指令
+
+## 最新开发进展
+
+### 🔧 当前开发状态 (2025-01-28)
+
+**✅ 已完成功能：**
+- 完整的 Supabase 集成和用户认证系统
+- 底部导航栏式的多页面架构（主页/探索/创作/个人）
+- 功能完整的故事创作和编辑系统
+- 游戏进度的云端保存和同步
+- 响应式设计和移动端适配
+- 半透明毛玻璃效果的 UI 设计
+- 多语言支持（中英文）
+- AI 对话系统和图片生成
+- 占位符替换和角色命名系统
+
+**🔄 当前问题和待修复：**
+- 移动端滚动时出现意外滚动条
+- 游戏界面边框适配问题
+- 总结面板偶发的黑屏错误
+- LLM 设置持久化问题
+- UI 缩放和透明度设置的显示 bug
+
+**📋 待开发功能：**
+- 故事搜索和高级筛选
+- 社区评论和评分系统
+- 故事标签和推荐算法
+- 更丰富的资料卡类型
+- 游戏内截图和分享功能
+
+## 开发环境设置
+
+### 前置条件
+- Node.js 18+ 
+- npm 或 yarn
+- Supabase 账户和项目
+
+### 安装和运行
+
+1. **克隆仓库**
+   ```bash
+   git clone <repository-url>
+   cd agent-adventure
+   ```
+
+2. **安装依赖**
+   ```bash
+   npm install
+   ```
+
+3. **配置环境**
+   - 在 `services/supabaseClient.ts` 中配置 Supabase URL 和 API Key
+   - 确保 Supabase 项目中已创建相应的数据表和 RLS 策略
+
+4. **启动开发服务器**
+   ```bash
+   npm run dev
+   ```
+
+5. **构建生产版本**
+   ```bash
+   npm run build
+   npm run preview
+   ```
+
+### 数据库设置
+
+项目使用 Supabase PostgreSQL 数据库，需要创建以下表结构：
+
+- `profiles` - 用户资料表
+- `stories` - 故事内容表  
+- `playthroughs` - 游戏进度表
+
+数据库迁移文件位于 `supabase/migrations/` 目录中。
+
+## 技术特色
+
+### 🎯 智能 AI 集成
+- **双模型支持**：同时支持 Google Gemini 和自定义 OpenAI 兼容端点
+- **上下文管理**：智能的对话历史压缩和总结
+- **动态参数调节**：实时调整 AI 模型参数以获得最佳体验
+
+### 🏗️ 现代架构设计
+- **组件化开发**：高度模块化的 React 组件设计
+- **类型安全**：全面的 TypeScript 类型定义
+- **状态管理**：React Context + Hooks 的轻量级状态管理
+- **响应式设计**：适配移动端和桌面端的现代 UI
+
+### 🔐 安全性考虑
+- **Row Level Security**：数据库层面的用户数据隔离
+- **认证集成**：基于 Supabase Auth 的安全认证系统
+- **API 密钥管理**：安全的密钥存储和管理机制
+
+### 🌐 用户体验
+- **PWA 支持**：可安装的 Web 应用体验
+- **离线能力**：Service Worker 支持基础离线功能
+- **多语言**：完整的中英双语界面
+- **主题系统**：深色/浅色模式切换
+
+---
+
+**Agent Adventure** - 让每个人都能成为故事的创作者和冒险家 🚀
