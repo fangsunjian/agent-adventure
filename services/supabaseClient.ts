@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 // 3. Copy the 'Project URL' and paste it below.
 // 4. Copy the 'Project API Key' (the public, anon key) and paste it below.
 
-const supabaseUrl = "https://optogbhbrfvxqrurqzml.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wdG9nYmhicmZ2eHFydXJxem1sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYxMzE2NzgsImV4cCI6MjA3MTcwNzY3OH0.yyrXaTakJevFoIMqZHgzAnl_CmKh2fcfjdcLpXhWRM0";
+const supabaseUrl = "https://gfupalrefrtsghidecjt.supabase.co";
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmdXBhbHJlZnJ0c2doaWRlY2p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzODI3NjgsImV4cCI6MjA3MTk1ODc2OH0.phdoLraVKKaYh24vkxvPYL7x2a2rhwdflnZfpH8FWFs";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
