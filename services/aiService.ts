@@ -57,6 +57,332 @@ const MILESTONE_SCHEMA_ZH = {
     required: ["is_milestone", "summary", "reason", "tags", "priority"]
 };
 
+// Tool definitions for dialogue system
+const DIALOGUE_TOOLS = [
+    {
+        type: "function",
+        function: {
+            name: "show_dialogue",
+            description: "REQUIRED: Use this function when creating NPC conversations. Creates immersive dialogue sequences with multiple messages. This function must be called instead of describing dialogue in regular text.",
+            parameters: {
+                type: "object",
+                properties: {
+                    speaker: {
+                        type: "string",
+                        description: "Name of the character speaking (e.g., 'Village Elder', '老村长')"
+                    },
+                    messages: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "Array of dialogue messages that will be displayed one by one. Each element must be a simple string containing one sentence or phrase the NPC says. Example: [\"Hello traveler!\", \"Welcome to our village.\", \"How may I help you?\"]"
+                    },
+                    avatar: {
+                        type: "string",
+                        description: "Optional avatar URL for the speaker"
+                    }
+                },
+                required: ["speaker", "messages"]
+            }
+        }
+    }
+];
+
+const DIALOGUE_TOOLS_ZH = [
+    {
+        type: "function",
+        function: {
+            name: "show_dialogue",
+            description: "显示NPC多句对话，逐句推进。用于创造沉浸式对话序列。",
+            parameters: {
+                type: "object",
+                properties: {
+                    speaker: {
+                        type: "string",
+                        description: "说话角色的名称"
+                    },
+                    messages: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "对话消息数组，每条消息将逐一显示。每个元素必须是包含NPC说话内容的简单字符串。示例：[\"你好，旅行者！\", \"欢迎来到我们村庄。\", \"我能为你做什么？\"]"
+                    },
+                    avatar: {
+                        type: "string",
+                        description: "说话者头像URL（可选）"
+                    }
+                },
+                required: ["speaker", "messages"]
+            }
+        }
+    }
+];
+
+// Tool handler interface
+export interface ToolCall {
+    id: string;
+    type: 'function';
+    function: {
+        name: string;
+        arguments: string;
+    };
+}
+
+export interface ToolHandler {
+    show_dialogue: (args: { speaker: string; messages: string[]; avatar?: string }) => Promise<any>;
+}
+
+// Enhanced function that supports tool calls
+export async function getNextSceneWithTools(
+    history: HistoryItem[],
+    settings: GameSettings,
+    memories: Memories,
+    logCommunication: (type: string, data: any) => void,
+    abortSignal: AbortSignal,
+    toolHandler?: ToolHandler
+): Promise<{ scene?: SceneFragment; rawResponse: string; toolCalls?: ToolCall[] }> {
+    
+    const contextualHistory = buildContextualHistory(history, memories, settings);
+    const { geminiSystemInstruction, openAIMessages } = buildPromptParts(contextualHistory, settings);
+
+    if (settings.provider === 'custom') {
+        if (!settings.customEndpoint) throw new Error("Custom endpoint URL is not configured in settings.");
+        const url = settings.customEndpoint.replace(/\/+$/, '') + '/chat/completions';
+
+        // Only use tools if enabled in settings
+        if (!settings.enableDialogueTools) {
+            // Fall back to regular scene generation without tools
+            return await getNextScene(history, settings, memories, logCommunication, abortSignal);
+        }
+
+        const tools = settings.language === 'zh' ? DIALOGUE_TOOLS_ZH : DIALOGUE_TOOLS;
+        
+        // Check if we should force tool usage based on user action
+        const shouldForceTools = openAIMessages.some(msg => 
+            msg.content.toLowerCase().includes('talk to') || 
+            msg.content.toLowerCase().includes('speak with') ||
+            msg.content.includes('与') && msg.content.includes('对话') ||
+            msg.content.includes('找') && (msg.content.includes('说话') || msg.content.includes('交谈'))
+        );
+        
+        // Build base payload
+        const requestPayload: any = {
+            model: settings.customModelId || 'gpt-4-turbo',
+            messages: openAIMessages,
+            tools: tools,
+            tool_choice: shouldForceTools ? "required" : "auto",
+            temperature: Number(settings.llm.temperature || 0.7),
+            top_p: Number(settings.llm.topP || 1),
+            max_tokens: Number(settings.llm.maxOutputTokens || 1000),
+        };
+        
+        // Add OpenAI-specific parameters only for non-Google APIs
+        const isGoogleAPI = settings.customEndpoint?.includes('googleapis.com') || 
+                           settings.customEndpoint?.includes('generativelanguage.googleapis.com');
+        
+        if (!isGoogleAPI) {
+            requestPayload.frequency_penalty = Number(settings.llm.frequencyPenalty || 0);
+            requestPayload.presence_penalty = Number(settings.llm.presencePenalty || 0);
+        }
+        
+        logCommunication('custom_request_getNextSceneWithTools', requestPayload);
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.customApiKey}` },
+                body: JSON.stringify(requestPayload),
+                signal: abortSignal,
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`Custom provider API error: ${response.status} ${response.statusText} - ${errorBody}`);
+            }
+            
+            const result = await response.json();
+            logCommunication('custom_response_getNextSceneWithTools', result);
+            
+            if (!result.choices || result.choices.length === 0) {
+                throw new Error("Custom provider returned an invalid response (empty choices array).");
+            }
+
+            const choice = result.choices[0];
+            const toolCalls = choice.message.tool_calls;
+            const content = choice.message.content;
+
+            console.log('Raw API response choice:', choice);
+            console.log('Tool calls detected:', toolCalls);
+            console.log('Content:', content);
+
+            // If there are tool calls, handle them
+            if (toolCalls && toolCalls.length > 0 && toolHandler) {
+                console.log('Processing tool calls:', toolCalls);
+                const processedToolCalls: ToolCall[] = [];
+                
+                for (const toolCall of toolCalls) {
+                    console.log('Processing tool call:', toolCall);
+                    if (toolCall.function.name === 'show_dialogue') {
+                        try {
+                            console.log('Raw arguments:', toolCall.function.arguments);
+                            
+                            // Try to parse and fix malformed JSON arguments
+                            let args;
+                            try {
+                                args = JSON.parse(toolCall.function.arguments);
+                                
+                                // Fix messages format if it's not an array of strings
+                                if (args.messages && Array.isArray(args.messages)) {
+                                    args.messages = args.messages.map(msg => {
+                                        if (typeof msg === 'string') {
+                                            return msg;
+                                        } else if (typeof msg === 'object' && msg.content) {
+                                            // Extract content from role-based message objects
+                                            return msg.content;
+                                        } else if (typeof msg === 'object' && msg.text) {
+                                            // Extract text field
+                                            return msg.text;
+                                        } else {
+                                            // Convert to string as fallback
+                                            return String(msg);
+                                        }
+                                    });
+                                }
+                                
+                            } catch (parseError) {
+                                console.log('Initial JSON parse failed, attempting repair...');
+                                
+                                // Try to extract valid JSON from malformed string
+                                const argsStr = toolCall.function.arguments;
+                                
+                                // Look for speaker pattern
+                                const speakerMatch = argsStr.match(/"speaker"\s*:\s*"([^"]+)"/);
+                                const messagesMatch = argsStr.match(/"messages"\s*:\s*\[(.*?)\]/);
+                                
+                                if (speakerMatch) {
+                                    args = {
+                                        speaker: speakerMatch[1],
+                                        messages: []
+                                    };
+                                    
+                                    if (messagesMatch) {
+                                        // Try to extract messages
+                                        const messagesStr = messagesMatch[1];
+                                        const messageMatches = messagesStr.match(/"([^"]+)"/g);
+                                        if (messageMatches) {
+                                            args.messages = messageMatches.map(m => m.slice(1, -1)); // Remove quotes
+                                        }
+                                    }
+                                    
+                                    // Fallback: use a default message if no messages found
+                                    if (!args.messages.length) {
+                                        // Extract any text content as message
+                                        const textMatch = argsStr.match(/[\u4e00-\u9fff\w\s.,!?，。！？]+/);
+                                        if (textMatch) {
+                                            args.messages = [textMatch[0].trim()];
+                                        } else {
+                                            args.messages = ["欢迎与我对话！"];
+                                        }
+                                    }
+                                    
+                                    console.log('Repaired arguments:', args);
+                                } else {
+                                    throw parseError; // Re-throw if can't repair
+                                }
+                            }
+                            
+                            console.log('Final parsed tool arguments:', args);
+                            await toolHandler.show_dialogue(args);
+                            processedToolCalls.push(toolCall);
+                        } catch (e) {
+                            console.error('Failed to execute tool call:', e);
+                            console.error('Tool call details:', toolCall);
+                        }
+                    }
+                }
+
+                return {
+                    rawResponse: JSON.stringify(result),
+                    toolCalls: processedToolCalls
+                };
+            }
+
+            // No tool calls, try to parse as regular scene
+            if (content) {
+                console.log('No tool calls, attempting to parse as scene:', content);
+                try {
+                    // Remove markdown code blocks if present
+                    let cleanContent = content;
+                    const jsonMatch = content.match(/```json\s*\n([\s\S]*?)\n```/);
+                    if (jsonMatch) {
+                        cleanContent = jsonMatch[1];
+                    }
+                    
+                    // Try to fix common JSON syntax issues
+                    cleanContent = cleanContent
+                        .replace(/,\s*}/g, '}') // Remove trailing commas before }
+                        .replace(/,\s*]/g, ']') // Remove trailing commas before ]
+                        .trim();
+                    
+                    console.log('Cleaned content for parsing:', cleanContent);
+                    const parsed = JSON.parse(cleanContent);
+                    
+                    // Check if the AI embedded dialogue data in the JSON response
+                    if (parsed.show_dialogue && toolHandler) {
+                        console.log('Found embedded dialogue in JSON response:', parsed.show_dialogue);
+                        
+                        // Convert to standard format
+                        const dialogueData = {
+                            speaker: parsed.show_dialogue.NPC || parsed.show_dialogue.speaker,
+                            messages: parsed.show_dialogue.dialogue || parsed.show_dialogue.messages,
+                            avatar: parsed.show_dialogue.avatar
+                        };
+                        
+                        console.log('Converted dialogue data:', dialogueData);
+                        await toolHandler.show_dialogue(dialogueData);
+                        
+                        return {
+                            rawResponse: content,
+                            toolCalls: [{
+                                id: `embedded-dialogue-${Date.now()}`,
+                                type: 'function' as const,
+                                function: {
+                                    name: 'show_dialogue',
+                                    arguments: JSON.stringify(dialogueData)
+                                }
+                            }]
+                        };
+                    }
+                    
+                    // Regular scene parsing
+                    const scene: SceneFragment = {
+                        description: parsed.description,
+                        imagePrompt: parsed.image_prompt || parsed.imagePrompt,
+                        actions: parsed.actions,
+                        summary: parsed.summary,
+                    };
+                    return { scene, rawResponse: content };
+                } catch (parseError) {
+                    console.error("Failed to parse scene response:", content, parseError);
+                    console.error("Parse error details:", parseError);
+                    throw new Error("The story took an unexpected turn. The format of the response was invalid.");
+                }
+            } else {
+                console.error('No content and no tool calls in response');
+                throw new Error("Empty response from API");
+            }
+
+        } catch(e) {
+            if ((e as Error).name === 'AbortError') console.log('Fetch aborted by user.');
+            logCommunication('custom_error_getNextSceneWithTools', e);
+            throw e;
+        }
+    } else {
+        // For Gemini, fall back to regular scene generation (tools not supported yet)
+        return await getNextScene(history, settings, memories, logCommunication, abortSignal);
+    }
+
+    throw new Error("Failed to generate response");
+}
+
 /**
  * Recursively converts a Gemini-style schema object to a standard JSON Schema format.
  */

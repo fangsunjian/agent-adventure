@@ -42,6 +42,14 @@ const GameSettingsPanel: React.FC<{
             [name]: parseFloat(value)
         });
     };
+    
+    const handleBooleanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, checked } = e.target;
+        onSettingsChange({
+            ...settings,
+            [name]: checked
+        });
+    };
 
     const handleSaveInstruction = (instructionToSave: SystemInstruction) => {
         const index = settings.systemInstructions.findIndex(i => i.id === instructionToSave.id);
@@ -138,6 +146,26 @@ const GameSettingsPanel: React.FC<{
                     <div className="space-y-4">
                         {renderGenericSlider("dialogueWindowOpacity", t.dialogueWindowOpacity, 0, 100, 5)}
                         {renderGenericSlider("bubbleOpacity", t.dialogueBubbleOpacity, 0, 100, 5)}
+                        
+                        {/* Dialogue Tools Checkbox */}
+                        {settings.provider === 'custom' && (
+                            <label htmlFor="enableDialogueTools" className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    id="enableDialogueTools"
+                                    name="enableDialogueTools"
+                                    type="checkbox"
+                                    checked={!!settings.enableDialogueTools}
+                                    onChange={handleBooleanChange}
+                                    className="h-4 w-4 text-indigo-600 bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 rounded focus:ring-indigo-500"
+                                />
+                                <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 select-none">
+                                    {settings.language === 'zh' ? '启用对话工具调用' : 'Enable Dialogue Tools'}
+                                </span>
+                                <span className="text-xs text-gray-500 dark:text-zinc-400">
+                                    {settings.language === 'zh' ? '(实验性功能)' : '(Experimental)'}
+                                </span>
+                            </label>
+                        )}
                     </div>
                 </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GameStatus } from '../types';
 import type { Scene, HistoryItem, GameSettings, DebugLogEntry, SceneFragment, Memories, MilestoneSummaryItem, Story, Playthrough, DetectedPlaceholder } from '../types';
-import { getNextScene, generateImage, generateGrandSummary, evaluateAndGenerateMilestone } from '../services/aiService';
+import { getNextScene, getNextSceneWithTools, generateImage, generateGrandSummary, evaluateAndGenerateMilestone, type ToolHandler } from '../services/aiService';
 import { translations, simpleUUID } from '../constants';
 import SceneDisplay from '../components/SceneDisplay';
 import ActionsPanel from '../components/ActionsPanel';
@@ -12,6 +12,7 @@ import DebugPanel from '../components/DebugPanel';
 import { BookIcon, BugIcon, CloseIcon, SlidersIcon, RegenerateIcon as RestartIcon, ArrowLeftIcon } from '../components/icons';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import PlaceholderInputModal from '../components/PlaceholderInputModal';
+import DialogueModal from '../components/DialogueModal';
 
 const showDebug = (window as any).DEBUG_MODE === true;
 
@@ -46,6 +47,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       userName: 'Player',
       charName: 'Game Master',
       gameStatus: GameStatus.Idle,
+      dialogue: null,
     };
   });
   
@@ -148,6 +150,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       userName: userName || 'Player',
       charName: charName || 'Game Master',
       gameStatus: GameStatus.Playing,
+      dialogue: null,
     });
     setCommunicationsLog([]);
   }, [userId]);
@@ -225,7 +228,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, [gameState, activeStory.id, onSavePlaythrough]);
   
 
-  const processAction = useCallback(async (action: string, currentState: typeof gameState) => {
+  const processAction = useCallback(async (action: string, currentState: typeof gameState, customSettings?: GameSettings) => {
     if (!processedStory) return;
     
     setGameState(s => ({...s, gameStatus: GameStatus.Loading}));
@@ -234,7 +237,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     abortControllerRef.current = controller;
     
     const isFirstAction = !currentState.history.some(h => h.role === 'user');
-    let settingsToUse = settings;
+    let settingsToUse = customSettings || settings;
 
     if (isFirstAction) {
         const tempInstructions = [...settingsToUse.systemInstructions];
@@ -260,7 +263,22 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     setGameState(s => ({...s, history: fullHistory, turn: newTurn}));
 
     try {
-      const { scene, rawResponse } = await getNextScene(fullHistory, settingsToUse, memories, logCommunication, controller.signal);
+      // Use enhanced function that supports tools when using custom provider
+      const result = await getNextSceneWithTools(fullHistory, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
+      
+      // If tools were called, continue the flow after tool completion
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        // Tools were executed, continue game normally without adding a new scene
+        setGameState(s => ({...s, gameStatus: GameStatus.Playing}));
+        return;
+      }
+      
+      // Regular scene generation
+      if (!result.scene) {
+        throw new Error("No scene or tool calls returned from AI");
+      }
+      
+      const { scene, rawResponse } = result;
 
       const historyItemInProgress: HistoryItem = {
         role: 'model' as const, parts: [{ text: rawResponse }], imageUrl: null,
@@ -391,6 +409,91 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       startNewSession(activeStory);
     }
   };
+
+  // Dialogue handling functions
+  const handleDialogueNext = useCallback(() => {
+    if (!gameState.dialogue) return;
+    
+    const newIndex = gameState.dialogue.currentIndex + 1;
+    setGameState(prev => ({
+      ...prev,
+      dialogue: prev.dialogue ? {
+        ...prev.dialogue,
+        currentIndex: newIndex
+      } : null
+    }));
+  }, [gameState.dialogue]);
+
+  const handleDialogueSkip = useCallback(() => {
+    if (!gameState.dialogue) return;
+    
+    // Complete the dialogue and add to history
+    const dialogueContent = `**${gameState.dialogue.speaker}**: ${gameState.dialogue.messages.join('\n\n')}`;
+    const dialogueHistoryItem: HistoryItem = {
+      role: 'model',
+      parts: [{ text: JSON.stringify({ description: dialogueContent, imagePrompt: '', actions: [], summary: `对话与${gameState.dialogue.speaker}` }) }],
+      imageUrl: null,
+      isGeneratingImage: false,
+    };
+
+    setGameState(prev => ({
+      ...prev,
+      history: [...prev.history, dialogueHistoryItem],
+      dialogue: null,
+    }));
+  }, [gameState.dialogue]);
+
+  const handleDialogueComplete = useCallback(() => {
+    if (!gameState.dialogue) return;
+    
+    // Add dialogue to history and clear dialogue state
+    const dialogueContent = `**${gameState.dialogue.speaker}**: ${gameState.dialogue.messages.join('\n\n')}`;
+    const dialogueHistoryItem: HistoryItem = {
+      role: 'model',
+      parts: [{ text: JSON.stringify({ description: dialogueContent, imagePrompt: '', actions: [], summary: `对话与${gameState.dialogue.speaker}` }) }],
+      imageUrl: null,
+      isGeneratingImage: false,
+    };
+
+    setGameState(prev => ({
+      ...prev,
+      history: [...prev.history, dialogueHistoryItem],
+      dialogue: null,
+    }));
+  }, [gameState.dialogue]);
+
+  // Tool handler for AI function calls
+  const toolHandler: ToolHandler = {
+    show_dialogue: async (args: { speaker: string; messages: string[]; avatar?: string }) => {
+      return new Promise<void>((resolve) => {
+        const callbackId = `dialogue-${Date.now()}`;
+        
+        setGameState(prev => ({
+          ...prev,
+          dialogue: {
+            isActive: true,
+            messages: args.messages,
+            currentIndex: 0,
+            speaker: args.speaker,
+            avatar: args.avatar,
+            callbackId
+          }
+        }));
+
+        // Store the resolve callback for when dialogue completes
+        const originalComplete = handleDialogueComplete;
+        const wrappedComplete = () => {
+          originalComplete();
+          resolve();
+        };
+        
+        // We'll resolve immediately for now, but this could be enhanced 
+        // to wait for actual dialogue completion
+        setTimeout(resolve, 100);
+      });
+    }
+  };
+
     
   const actionsToShow = currentModelResponse?.actions ?? [];
 
@@ -433,9 +536,28 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                         <BookIcon className="w-5 h-5"/>
                     </button>
                     {showDebug && (
+                    <>
                     <button onClick={() => setIsDebugPanelOpen(true)} disabled={gameState.history.length === 0} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" aria-label={t.debugLog}>
                         <BugIcon className="w-5 h-5"/>
                     </button>
+                    {/* Debug mode dialogue test button */}
+                    <button 
+                        onClick={() => setGameState(prev => ({
+                            ...prev,
+                            dialogue: {
+                                isActive: true,
+                                messages: ["欢迎来到这个神秘的村庄！", "这里发生了一些奇怪的事情...", "你能帮助我们找到真相吗？"],
+                                currentIndex: 0,
+                                speaker: "村长",
+                                callbackId: "debug-dialogue-test"
+                            }
+                        }))} 
+                        className="p-2 text-gray-200 hover:text-white bg-purple-600/50 rounded-full transition-colors" 
+                        aria-label="测试对话"
+                    >
+                        <span className="text-xs">对话</span>
+                    </button>
+                    </>
                     )}
                 </div>
             </header>
@@ -523,6 +645,19 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                 placeholders={detectedPlaceholders}
                 language={settings.language}
             />}
+
+            {gameState.dialogue && (
+                <DialogueModal
+                    isOpen={gameState.dialogue.isActive}
+                    messages={gameState.dialogue.messages}
+                    currentIndex={gameState.dialogue.currentIndex}
+                    speaker={gameState.dialogue.speaker}
+                    avatar={gameState.dialogue.avatar}
+                    onNext={handleDialogueNext}
+                    onSkip={handleDialogueSkip}
+                    onComplete={handleDialogueComplete}
+                />
+            )}
         </div>
     </div>
   );

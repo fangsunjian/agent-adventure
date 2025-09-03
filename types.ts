@@ -66,6 +66,7 @@ export interface AppSettings {
   customApiKey: string;
   customModelId: string;
   enableImageGeneration: boolean;
+  enableDialogueTools: boolean; // New setting for dialogue tool calls
   language: Language;
   theme: 'light' | 'dark';
   uiScale: number; // in percent, e.g., 100
@@ -189,6 +190,7 @@ export interface Playthrough {
   userName: string;
   charName: string;
   gameStatus: GameStatus;
+  dialogue?: DialogueState | null;
 }
 
 export interface PlaythroughFromDB {
@@ -196,4 +198,26 @@ export interface PlaythroughFromDB {
     user_id: string;
     story_id: string;
     game_state: Omit<Playthrough, 'id' | 'userId' | 'storyId'>;
+}
+
+// --- Dialogue System Types ---
+
+export interface DialogueState {
+  isActive: boolean;
+  messages: string[];
+  currentIndex: number;
+  speaker: string;
+  avatar?: string;
+  callbackId: string;
+}
+
+export interface DialogueModalProps {
+  isOpen: boolean;
+  messages: string[];
+  currentIndex: number;
+  speaker: string;
+  avatar?: string;
+  onNext: () => void;
+  onSkip: () => void;
+  onComplete: () => void;
 }

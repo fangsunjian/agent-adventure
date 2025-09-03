@@ -327,6 +327,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   useJsonSchemaForCustom: false,
   lmStudioCompatibleJson: false,
   enableImageGeneration: true,
+  enableDialogueTools: false,
   language: 'en',
   theme: 'dark',
   uiScale: 100,
