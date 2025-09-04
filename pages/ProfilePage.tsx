@@ -158,9 +158,10 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ settings, setSettings, storie
                     {myStories.map(story => (
                         <div key={story.id} className="relative group">
                            <StoryCard story={story} />
-                           <div className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => onEdit(story)} className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700">{t.edit}</button>
-                                <button onClick={() => setConfirmAction({type: 'deleteStory', id: story.id, title: story.title})} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700">{t.delete}</button>
+                           <div className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => onPlay(story)} className="px-3 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700">Play</button>
+                                <button onClick={() => onEdit(story)} className="px-3 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700">{t.edit}</button>
+                                <button onClick={() => setConfirmAction({type: 'deleteStory', id: story.id, title: story.title})} className="px-3 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700">{t.delete}</button>
                            </div>
                         </div>
                     ))}

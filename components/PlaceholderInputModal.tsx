@@ -8,20 +8,22 @@ const PlaceholderInputModal: React.FC<{
     onSubmit: (names: Record<string, string>) => void;
     placeholders: DetectedPlaceholder[];
     language: Language;
-}> = ({ isOpen, onClose, onSubmit, placeholders, language }) => {
+    initialValues?: Record<string, string>;
+}> = ({ isOpen, onClose, onSubmit, placeholders, language, initialValues }) => {
     const [values, setValues] = useState<Record<string, string>>({});
     const t = translations[language];
 
     useEffect(() => {
         if (isOpen) {
             // Initialize state when modal opens
-            const initialValues: Record<string, string> = {};
+            const newValues: Record<string, string> = {};
             placeholders.forEach(p => {
-                initialValues[p.key] = '';
+                // Use initial value if provided, otherwise empty string
+                newValues[p.key] = initialValues?.[p.key] || '';
             });
-            setValues(initialValues);
+            setValues(newValues);
         }
-    }, [isOpen, placeholders]);
+    }, [isOpen, placeholders, initialValues]);
 
     if (!isOpen) return null;
 

@@ -15,17 +15,32 @@ interface SceneDisplayProps {
 
 const ImageWithLoader: React.FC<{ scene: Scene }> = ({ scene }) => {
   const [isImageLoaded, setIsImageLoaded] = React.useState(false);
+  const [currentImageUrl, setCurrentImageUrl] = React.useState<string | null>(null);
 
   useEffect(() => {
-    if (scene.imageUrl) {
+    if (scene.imageUrl && scene.imageUrl !== currentImageUrl) {
+      // Only reset if the image URL actually changed
+      setCurrentImageUrl(scene.imageUrl);
       setIsImageLoaded(false);
       const img = new Image();
       img.src = scene.imageUrl;
       img.onload = () => setIsImageLoaded(true);
-    } else {
-        setIsImageLoaded(true); // No image to load
+      img.onerror = () => setIsImageLoaded(false);
+    } else if (!scene.imageUrl) {
+      setIsImageLoaded(true); // No image to load
+      setCurrentImageUrl(null);
+    } else if (scene.imageUrl === currentImageUrl && !isImageLoaded) {
+      // Same URL but not loaded yet, check if it's already cached
+      const img = new Image();
+      img.src = scene.imageUrl;
+      if (img.complete) {
+        setIsImageLoaded(true);
+      } else {
+        img.onload = () => setIsImageLoaded(true);
+        img.onerror = () => setIsImageLoaded(false);
+      }
     }
-  }, [scene.imageUrl]);
+  }, [scene.imageUrl, currentImageUrl, isImageLoaded]);
 
   if (!scene.imageUrl) {
     return null;

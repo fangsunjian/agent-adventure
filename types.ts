@@ -191,6 +191,7 @@ export interface Playthrough {
   charName: string;
   gameStatus: GameStatus;
   dialogue?: DialogueState | null;
+  placeholderValues?: Record<string, string>;
 }
 
 export interface PlaythroughFromDB {

@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import type { SceneFragment, HistoryItem, GameSettings, SystemInstruction, CustomModel, Memories, MilestoneSummaryItem, GrandSummaryItem } from '../types';
+import { jsonrepair } from 'jsonrepair';
 
 if (!process.env.GEMINI_API_KEY) {
   console.warn("GEMINI_API_KEY environment variable not set for Gemini. This is fine if you are using a custom provider.");
@@ -7,7 +8,27 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-const BASE_SYSTEM_INSTRUCTION_EN = `You are an expert text adventure game master. You will create a rich, descriptive, and engaging world for the player. You must always respond in the specified JSON format and only that format. Do not include any markdown formatting. The player provides an action, you describe the outcome and new scene. Keep the story moving, introduce challenges and mysteries.`;
+const BASE_SYSTEM_INSTRUCTION_EN = `You are an expert text adventure game master. You will create a rich, descriptive, and engaging world for the player. 
+
+CRITICAL JSON FORMATTING RULES:
+- You must ALWAYS respond in valid JSON format ONLY
+- In JSON strings, you MUST properly escape special characters:
+  • Use \\" for double quotes inside strings
+  • Use \\\\ for backslashes
+  • Use \\n for line breaks
+  • Use \\t for tabs
+- Example: "She said, \\"Hello!\\" and walked away.\\nThe door closed."
+- NEVER use single quotes in JSON
+- ALWAYS use double quotes for keys and string values
+- NEVER include any markdown formatting, comments, or extra text outside JSON
+
+DIALOGUE TOOL USAGE RULES:
+- Use show_dialogue ONLY when an NPC has direct, specific dialogue to deliver to the player
+- Do NOT use show_dialogue for exploration results, scene descriptions, or narrative text
+- Do NOT use show_dialogue when the player is investigating, exploring, or performing actions that don't involve direct character conversation
+- When in doubt, use regular JSON scene responses instead of dialogue tools
+
+The player provides an action, you describe the outcome and new scene. Keep the story moving, introduce challenges and mysteries.`;;
 
 const RESPONSE_SCHEMA_EN = {
   type: Type.OBJECT,
@@ -20,7 +41,27 @@ const RESPONSE_SCHEMA_EN = {
   required: ["description", "image_prompt", "actions", "summary"]
 };
 
-const BASE_SYSTEM_INSTRUCTION_ZH = `你是一位专家级的文字冒险游戏大师。你将为玩家创造一个丰富、生动、引人入胜的世界。你必须始终以指定的JSON格式并且仅以该格式进行响应。不要包含任何 markdown 格式。玩家提供行动，你描述结果和新场景。保持故事向前发展，引入挑战和谜团。所有内容都必须使用简体中文。`;
+const BASE_SYSTEM_INSTRUCTION_ZH = `你是一位专家级的文字冒险游戏大师。你将为玩家创造一个丰富、生动、引人入胜的世界。
+
+关键JSON格式规则：
+- 你必须始终只使用有效的JSON格式响应
+- 在JSON字符串中，你必须正确转义特殊字符：
+  • 字符串内的双引号使用 \\"
+  • 反斜杠使用 \\\\
+  • 换行使用 \\n
+  • 制表符使用 \\t
+- 示例："她说，\\"你好！\\"然后走开了。\\n门关上了。"
+- 绝不使用单引号
+- 键和字符串值始终使用双引号
+- 绝不包含markdown格式、注释或JSON之外的额外文本
+
+对话工具使用规则：
+- 只有当NPC有直接、具体的对话要传达给玩家时才使用show_dialogue
+- 不要将show_dialogue用于探索结果、场景描述或叙述文本
+- 当玩家正在调查、探索或执行不涉及直接角色对话的行动时，不要使用show_dialogue
+- 如有疑问，使用常规JSON场景响应而非对话工具
+
+玩家提供行动，你描述结果和新场景。保持故事向前发展，引入挑战和谜团。所有内容都必须使用简体中文。`;;
 
 const RESPONSE_SCHEMA_ZH = {
   type: Type.OBJECT,
@@ -63,7 +104,7 @@ const DIALOGUE_TOOLS = [
         type: "function",
         function: {
             name: "show_dialogue",
-            description: "REQUIRED: Use this function when creating NPC conversations. Creates immersive dialogue sequences with multiple messages. This function must be called instead of describing dialogue in regular text.",
+            description: "Use this function ONLY when creating direct NPC-to-player conversations where the NPC has specific dialogue to deliver. Do NOT use for narrative descriptions, exploration results, or general scene descriptions. Use regular scene responses instead when the player is exploring, investigating, or performing actions that don't involve direct character conversation.",
             parameters: {
                 type: "object",
                 properties: {
@@ -74,7 +115,7 @@ const DIALOGUE_TOOLS = [
                     messages: {
                         type: "array",
                         items: { type: "string" },
-                        description: "Array of dialogue messages that will be displayed one by one. Each element must be a simple string containing one sentence or phrase the NPC says. Example: [\"Hello traveler!\", \"Welcome to our village.\", \"How may I help you?\"]"
+                        description: "Array of dialogue messages that will be displayed one by one. Split long speeches into multiple sentences/thoughts for better pacing. Each element should be one complete sentence or thought. CRITICAL: Use proper JSON escaping for quotes with \\\" but keep natural sentence structure. Example: [\"Hello traveler!\", \"I've been waiting for someone like you.\", \"There's trouble in the village that needs your help.\"]"
                     },
                     avatar: {
                         type: "string",
@@ -85,14 +126,14 @@ const DIALOGUE_TOOLS = [
             }
         }
     }
-];
+];;;;
 
 const DIALOGUE_TOOLS_ZH = [
     {
         type: "function",
         function: {
             name: "show_dialogue",
-            description: "显示NPC多句对话，逐句推进。用于创造沉浸式对话序列。",
+            description: "仅当创建NPC与玩家的直接对话时使用此功能，即NPC有具体对话内容要传达。不要用于叙述描述、探索结果或一般场景描述。当玩家探索、调查或执行不涉及直接角色对话的行动时，请使用常规场景回应。",
             parameters: {
                 type: "object",
                 properties: {
@@ -103,7 +144,7 @@ const DIALOGUE_TOOLS_ZH = [
                     messages: {
                         type: "array",
                         items: { type: "string" },
-                        description: "对话消息数组，每条消息将逐一显示。每个元素必须是包含NPC说话内容的简单字符串。示例：[\"你好，旅行者！\", \"欢迎来到我们村庄。\", \"我能为你做什么？\"]"
+                        description: "对话消息数组，每条消息将逐一显示。将长篇对话分割为多个句子/想法以获得更好的节奏感。每个元素应该是一个完整的句子或想法。重要：对引号使用正确的JSON转义\\\"，但保持自然的句子结构。示例：[\"你好，旅行者！\", \"我一直在等待像你这样的人。\", \"村子里有麻烦需要你的帮助。\"]"
                     },
                     avatar: {
                         type: "string",
@@ -114,7 +155,7 @@ const DIALOGUE_TOOLS_ZH = [
             }
         }
     }
-];
+];;;;
 
 // Tool handler interface
 export interface ToolCall {
@@ -322,8 +363,223 @@ export async function getNextSceneWithTools(
                         .replace(/,\s*]/g, ']') // Remove trailing commas before ]
                         .trim();
                     
+                    // Fix misplaced summary in actions array
+                    // Pattern: "actions": [..., "summary": "text"}
+                    if (cleanContent.includes('"actions":') && cleanContent.includes('"summary":')) {
+                        const summaryInArrayPattern = /"actions":\s*\[(.*?),\s*"summary":\s*"([^"]*?)"\s*\}/;
+                        const summaryMatch = cleanContent.match(summaryInArrayPattern);
+                        
+                        if (summaryMatch) {
+                            console.log('Detected misplaced summary in actions array, fixing...');
+                            try {
+                                const actionsStr = summaryMatch[1];
+                                const summaryText = summaryMatch[2];
+                                
+                                // Parse actions properly - they should be JSON array elements
+                                let actions = [];
+                                if (actionsStr.trim()) {
+                                    // Try to parse as JSON array elements
+                                    try {
+                                        const jsonArrayStr = `[${actionsStr}]`;
+                                        actions = JSON.parse(jsonArrayStr);
+                                    } catch {
+                                        // Fallback: manual parsing
+                                        actions = actionsStr.split(',')
+                                            .map(action => action.trim().replace(/^"|"$/g, ''))
+                                            .filter(action => action.length > 0);
+                                    }
+                                }
+                                
+                                // Get everything before "actions" and rebuild
+                                const beforeActions = cleanContent.substring(0, cleanContent.indexOf('"actions"'));
+                                
+                                // Rebuild the entire object
+                                const fixedContent = beforeActions + 
+                                    `"actions": ${JSON.stringify(actions)}, "summary": "${summaryText}"}`;
+                                
+                                console.log('Fixed misplaced summary:', fixedContent);
+                                
+                                // Validate the fixed JSON before using it
+                                try {
+                                    JSON.parse(fixedContent);
+                                    cleanContent = fixedContent;
+                                    console.log('JSON validation passed');
+                                } catch (validationError) {
+                                    console.log('Fixed JSON still invalid, reverting to original:', validationError);
+                                    // Don't update cleanContent if validation fails
+                                }
+                            } catch (fixError) {
+                                console.log('Failed to fix misplaced summary:', fixError);
+                                console.log('Original content:', cleanContent);
+                            }
+                        }
+                    }
+                    
+                    // Try to fix malformed actions array format
+                    // Pattern: {"actions": ["show_dialogue", "data": {...}]}
+                    const malformedActionsPattern = /"actions":\s*\["show_dialogue",\s*"data":\s*(\{.*?\})\]/s;
+                    const malformedMatch = cleanContent.match(malformedActionsPattern);
+                    
+                    if (malformedMatch) {
+                        console.log('Detected malformed actions format, attempting to fix...');
+                        console.log('Original malformed content:', cleanContent);
+                        try {
+                            // Extract the data object string and try to parse it
+                            let dataObjectStr = malformedMatch[1];
+                            
+                            // Handle nested quotes by attempting progressive parsing
+                            let dataObject;
+                            try {
+                                dataObject = JSON.parse(dataObjectStr);
+                            } catch (parseError) {
+                                console.log('Failed to parse data object directly, trying to extract manually...');
+                                
+                                // Manual extraction for complex nested structure
+                                const speakerMatch = dataObjectStr.match(/"speaker":\s*"([^"]+)"/);
+                                const messagesMatch = dataObjectStr.match(/"messages":\s*\[(.*?)\]/s);
+                                
+                                if (speakerMatch) {
+                                    dataObject = {
+                                        speaker: speakerMatch[1],
+                                        messages: []
+                                    };
+                                    
+                                    if (messagesMatch) {
+                                        const messagesStr = messagesMatch[1];
+                                        // Extract individual messages
+                                        const messageMatches = messagesStr.match(/"[^"]*(?:\\.[^"]*)*"/g);
+                                        if (messageMatches) {
+                                            dataObject.messages = messageMatches.map(m => {
+                                                // Remove outer quotes and unescape inner quotes
+                                                return m.slice(1, -1).replace(/\\"/g, '"');
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (dataObject && dataObject.speaker) {
+                                // Create properly formatted JSON
+                                const fixedJson = {
+                                    show_dialogue: {
+                                        speaker: dataObject.speaker,
+                                        messages: dataObject.messages || []
+                                    }
+                                };
+                                
+                                console.log('Fixed JSON:', fixedJson);
+                                cleanContent = JSON.stringify(fixedJson);
+                            }
+                        } catch (fixError) {
+                            console.log('Failed to fix malformed actions:', fixError);
+                            console.log('Continuing with original content...');
+                        }
+                    }
+                    
+                    // Try to fix truncated JSON
+                    if (!cleanContent.endsWith('}') && !cleanContent.endsWith(']')) {
+                        console.log('JSON appears truncated, attempting basic repair...');
+                        
+                        // Count open/close brackets to guess how to close
+                        const openBraces = (cleanContent.match(/\{/g) || []).length;
+                        const closeBraces = (cleanContent.match(/\}/g) || []).length;
+                        const openBrackets = (cleanContent.match(/\[/g) || []).length;
+                        const closeBrackets = (cleanContent.match(/\]/g) || []).length;
+                        
+                        // Add missing closing characters
+                        for (let i = 0; i < openBrackets - closeBrackets; i++) {
+                            cleanContent += ']';
+                        }
+                        for (let i = 0; i < openBraces - closeBraces; i++) {
+                            cleanContent += '}';
+                        }
+                        
+                        console.log('Attempted repair of truncated JSON:', cleanContent);
+                    }
+                    
                     console.log('Cleaned content for parsing:', cleanContent);
-                    const parsed = JSON.parse(cleanContent);
+                    
+                    // Try jsonrepair first for comprehensive JSON fixing
+                    try {
+                        console.log('Attempting jsonrepair...');
+                        const repairedContent = jsonrepair(cleanContent);
+                        console.log('jsonrepair succeeded:', repairedContent);
+                        cleanContent = repairedContent;
+                    } catch (repairError) {
+                        console.log('jsonrepair failed, continuing with manual repairs:', repairError);
+                    }
+                    
+                    // Additional safety check for any remaining malformed actions array
+                    if (cleanContent.includes('"actions"') && cleanContent.includes('"show_dialogue"') && cleanContent.includes('"data"')) {
+                        console.log('Detected potential actions array issue, attempting comprehensive fix...');
+                        
+                        // Try to extract and fix any actions array issues
+                        try {
+                            // More general pattern to catch various malformed actions
+                            const generalActionsPattern = /"actions":\s*\[([^\]]*"show_dialogue"[^\]]*)\]/s;
+                            const actionsMatch = cleanContent.match(generalActionsPattern);
+                            
+                            if (actionsMatch) {
+                                const actionsContent = actionsMatch[1];
+                                console.log('Found problematic actions content:', actionsContent);
+                                
+                                // Look for speaker and messages in the actions content
+                                const speakerMatch = actionsContent.match(/"speaker":\s*"([^"]+)"/);
+                                const messagesMatch = actionsContent.match(/"messages":\s*\[(.*?)\]/s);
+                                
+                                if (speakerMatch) {
+                                    let messages = [];
+                                    if (messagesMatch) {
+                                        const messagesStr = messagesMatch[1];
+                                        const messageMatches = messagesStr.match(/"[^"]*(?:\\.[^"]*)*"/g);
+                                        if (messageMatches) {
+                                            messages = messageMatches.map(m => m.slice(1, -1).replace(/\\"/g, '"'));
+                                        }
+                                    }
+                                    
+                                    // Replace the entire content with fixed embedded dialogue format
+                                    const fixedJson = {
+                                        show_dialogue: {
+                                            speaker: speakerMatch[1],
+                                            messages: messages
+                                        }
+                                    };
+                                    
+                                    cleanContent = JSON.stringify(fixedJson);
+                                    console.log('Applied comprehensive fix, new content:', cleanContent);
+                                }
+                            }
+                        } catch (comprehensiveFixError) {
+                            console.log('Comprehensive fix failed:', comprehensiveFixError);
+                        }
+                    }
+                    
+                    let parsed;
+                    try {
+                        parsed = JSON.parse(cleanContent);
+                    } catch (finalParseError) {
+                        console.error('Final JSON parse failed, attempting last resort text extraction...', finalParseError);
+                        console.error('Problematic content:', cleanContent);
+                        
+                        // Last resort: try to extract any readable text content
+                        let description = 'An error occurred while processing the response.';
+                        
+                        // Try to extract any quoted text that might be the main content
+                        const textMatch = cleanContent.match(/"([^"]+(?:\\.[^"]*)*)" /);
+                        if (textMatch) {
+                            description = textMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+                        }
+                        
+                        // Create a minimal valid scene
+                        parsed = {
+                            description: description,
+                            imagePrompt: '',
+                            actions: ['Continue'],
+                            summary: 'Error occurred, continuing story...'
+                        };
+                        
+                        console.log('Created fallback scene:', parsed);
+                    }
                     
                     // Check if the AI embedded dialogue data in the JSON response
                     if (parsed.show_dialogue && toolHandler) {
@@ -352,6 +608,58 @@ export async function getNextSceneWithTools(
                         };
                     }
                     
+                    // Check for malformed actions array with embedded dialogue
+                    if (parsed.actions && Array.isArray(parsed.actions) && toolHandler) {
+                        console.log('Checking actions array for dialogue:', parsed.actions);
+                        
+                        // Look for show_dialogue in actions array
+                        const hasDialogueAction = parsed.actions.includes('show_dialogue');
+                        
+                        if (hasDialogueAction) {
+                            console.log('Found show_dialogue in actions, checking for data...');
+                            
+                            // Look for dialogue data in various possible locations
+                            let dialogueData = null;
+                            
+                            // Check if there's a data property at the same level
+                            if (parsed.data && parsed.data.speaker) {
+                                dialogueData = {
+                                    speaker: parsed.data.speaker,
+                                    messages: parsed.data.messages || []
+                                };
+                            }
+                            // Check if actions array has objects with dialogue data
+                            else {
+                                for (const action of parsed.actions) {
+                                    if (typeof action === 'object' && action.speaker) {
+                                        dialogueData = {
+                                            speaker: action.speaker,
+                                            messages: action.messages || []
+                                        };
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (dialogueData && dialogueData.messages.length > 0) {
+                                console.log('Extracted dialogue data from malformed actions:', dialogueData);
+                                await toolHandler.show_dialogue(dialogueData);
+                                
+                                return {
+                                    rawResponse: content,
+                                    toolCalls: [{
+                                        id: `malformed-dialogue-${Date.now()}`,
+                                        type: 'function' as const,
+                                        function: {
+                                            name: 'show_dialogue',
+                                            arguments: JSON.stringify(dialogueData)
+                                        }
+                                    }]
+                                };
+                            }
+                        }
+                    }
+                    
                     // Regular scene parsing
                     const scene: SceneFragment = {
                         description: parsed.description,
@@ -363,7 +671,49 @@ export async function getNextSceneWithTools(
                 } catch (parseError) {
                     console.error("Failed to parse scene response:", content, parseError);
                     console.error("Parse error details:", parseError);
-                    throw new Error("The story took an unexpected turn. The format of the response was invalid.");
+                    
+                    // Fallback: Try to extract text content from malformed mixed format
+                    try {
+                        console.log('Attempting fallback parsing for mixed format...');
+                        
+                        // Try to extract description from quoted text at the beginning
+                        const textMatch = content.match(/^"([^"]*(?:\\.[^"]*)*)"/) || 
+                                        content.match(/^([^"]*?)(?:",|$)/);
+                        
+                        if (textMatch) {
+                            let description = textMatch[1];
+                            // Unescape quotes and newlines
+                            description = description
+                                .replace(/\\"/g, '"')
+                                .replace(/\\n/g, '\n')
+                                .replace(/\\\\/g, '\\');
+                            
+                            console.log('Extracted description from fallback:', description);
+                            
+                            // Create a simple scene with just the text content
+                            const scene: SceneFragment = {
+                                description: description,
+                                imagePrompt: '',
+                                actions: [], // Empty actions since format was malformed
+                                summary: description.slice(0, 100) + '...'
+                            };
+                            
+                            return { scene, rawResponse: content };
+                        }
+                    } catch (fallbackError) {
+                        console.error("Fallback parsing also failed:", fallbackError);
+                    }
+                    
+                    // Final fallback: create a minimal scene to prevent crashes
+                    console.log('All parsing failed, creating minimal scene...');
+                    const minimalScene: SceneFragment = {
+                        description: "你在一个神秘的地方，周围的环境让你感到困惑。你需要决定下一步行动。",
+                        imagePrompt: "神秘的环境",
+                        actions: ["继续探索", "停下来思考"],
+                        summary: "玩家在一个未知的环境中"
+                    };
+                    
+                    return { scene: minimalScene, rawResponse: content };
                 }
             } else {
                 console.error('No content and no tool calls in response');

@@ -48,6 +48,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       charName: 'Game Master',
       gameStatus: GameStatus.Idle,
       dialogue: null,
+      placeholderValues: {},
     };
   });
   
@@ -59,6 +60,10 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const [isNewGameConfirmOpen, setIsNewGameConfirmOpen] = useState(false);
   const [isPlaceholderModalOpen, setIsPlaceholderModalOpen] = useState(false);
   const [detectedPlaceholders, setDetectedPlaceholders] = useState<DetectedPlaceholder[]>([]);
+  const [lastPlaceholderValues, setLastPlaceholderValues] = useState<Record<string, string>>(() => {
+    // Initialize with values from playthrough if available
+    return playthrough?.placeholderValues || {};
+  });
   const [processedStory, setProcessedStory] = useState<Story | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -140,7 +145,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       isGeneratingImage: false,
     };
 
-    setGameState({
+    setGameState(prev => ({
       userId: userId,
       history: [monologueHistoryItem],
       summaries: [],
@@ -151,7 +156,8 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       charName: charName || 'Game Master',
       gameStatus: GameStatus.Playing,
       dialogue: null,
-    });
+      placeholderValues: prev.placeholderValues || {},
+    }));
     setCommunicationsLog([]);
   }, [userId]);
   
@@ -178,6 +184,15 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, []);
 
   const handlePlaceholderSubmit = useCallback((names: Record<string, string>) => {
+      // Save the values for next time
+      setLastPlaceholderValues(names);
+      
+      // Update gameState with placeholder values for persistence
+      setGameState(prev => ({
+        ...prev,
+        placeholderValues: names
+      }));
+      
       const replacedStory = JSON.parse(JSON.stringify(activeStory));
       
       const replace = (text: string) => {
@@ -205,6 +220,11 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       setIsPlaceholderModalOpen(false);
   }, [activeStory, startNewSession]);
 
+  const handlePlaceholderCancel = useCallback(() => {
+      setIsPlaceholderModalOpen(false);
+      // Don't call onExit, just close the modal and stay in the game
+  }, []);
+
   useEffect(() => {
     if (playthrough) {
       setProcessedStory(activeStory);
@@ -228,7 +248,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, [gameState, activeStory.id, onSavePlaythrough]);
   
 
-  const processAction = useCallback(async (action: string, currentState: typeof gameState, customSettings?: GameSettings) => {
+  const processAction = useCallback(async (action: string, currentState: typeof gameState, customSettings?: GameSettings, silent?: boolean) => {
     if (!processedStory) return;
     
     setGameState(s => ({...s, gameStatus: GameStatus.Loading}));
@@ -259,12 +279,19 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     const userAction: HistoryItem = { role: 'user' as const, parts: [{ text: action }] };
     logCommunication('user_action', userAction);
     
-    const fullHistory = [...currentState.history, userAction];
-    setGameState(s => ({...s, history: fullHistory, turn: newTurn}));
+    // Only add to visible history if not silent
+    const fullHistory = silent ? currentState.history : [...currentState.history, userAction];
+    const historyForAPI = [...currentState.history, userAction]; // Always include in API call
+    
+    if (!silent) {
+      setGameState(s => ({...s, history: fullHistory, turn: newTurn}));
+    } else {
+      setGameState(s => ({...s, gameStatus: GameStatus.Loading}));
+    }
 
     try {
       // Use enhanced function that supports tools when using custom provider
-      const result = await getNextSceneWithTools(fullHistory, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
+      const result = await getNextSceneWithTools(historyForAPI, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
       
       // If tools were called, continue the flow after tool completion
       if (result.toolCalls && result.toolCalls.length > 0) {
@@ -281,15 +308,16 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       const { scene, rawResponse } = result;
 
       const historyItemInProgress: HistoryItem = {
-        role: 'model' as const, parts: [{ text: rawResponse }], imageUrl: null,
+        role: 'model' as const, parts: [{ text: JSON.stringify(scene) }], imageUrl: null,
         isGeneratingImage: settingsToUse.enableImageGeneration,
       };
       
       setGameState(s => ({
         ...s,
-        history: [...s.history, historyItemInProgress],
+        history: silent ? [...fullHistory, historyItemInProgress] : [...s.history, historyItemInProgress],
         summaries: [...s.summaries, scene.summary],
-        gameStatus: GameStatus.Playing
+        gameStatus: GameStatus.Playing,
+        turn: newTurn
       }));
 
       const updatedHistoryWithModel = [...fullHistory, historyItemInProgress];
@@ -447,20 +475,32 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     if (!gameState.dialogue) return;
     
     // Add dialogue to history and clear dialogue state
-    const dialogueContent = `**${gameState.dialogue.speaker}**: ${gameState.dialogue.messages.join('\n\n')}`;
+    const dialogueContent = `**${gameState.dialogue.speaker}**: ${gameState.dialogue.messages.join('\\n\\n')}`;
     const dialogueHistoryItem: HistoryItem = {
       role: 'model',
-      parts: [{ text: JSON.stringify({ description: dialogueContent, imagePrompt: '', actions: [], summary: `对话与${gameState.dialogue.speaker}` }) }],
+      parts: [{ text: JSON.stringify({ 
+        description: dialogueContent, 
+        imagePrompt: '', 
+        actions: [
+          '继续探索',
+          '询问更多信息', 
+          '告别并离开'
+        ], 
+        summary: `对话与${gameState.dialogue.speaker}` 
+      }) }],
       imageUrl: null,
       isGeneratingImage: false,
     };
 
+    // Update state with dialogue in history  
     setGameState(prev => ({
       ...prev,
       history: [...prev.history, dialogueHistoryItem],
       dialogue: null,
     }));
-  }, [gameState.dialogue]);
+    
+    // No automatic continuation - let player choose what to do next
+  }, [gameState.dialogue]);;
 
   // Tool handler for AI function calls
   const toolHandler: ToolHandler = {
@@ -640,10 +680,11 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
 
             {isPlaceholderModalOpen && <PlaceholderInputModal 
                 isOpen={isPlaceholderModalOpen}
-                onClose={onExit}
+                onClose={handlePlaceholderCancel}
                 onSubmit={handlePlaceholderSubmit}
                 placeholders={detectedPlaceholders}
                 language={settings.language}
+                initialValues={lastPlaceholderValues}
             />}
 
             {gameState.dialogue && (

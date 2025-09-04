@@ -14,11 +14,21 @@ const DialogueModal: React.FC<DialogueModalProps> = ({
 }) => {
   if (!isOpen || messages.length === 0) return null;
 
+  // Function to decode escaped characters in dialogue text
+  const decodeMessage = (message: string): string => {
+    return message
+      .replace(/\\n\\n/g, '\n\n')  // Replace \\n\\n with actual double newlines
+      .replace(/\\n/g, '\n')      // Replace \\n with actual newlines
+      .replace(/\\"/g, '"')       // Replace \\" with actual quotes
+      .replace(/\\\\/g, '\\');    // Replace \\\\ with actual backslashes
+  };
+
   // Ensure messages is an array and currentIndex is valid
   const safeMessages = Array.isArray(messages) ? messages.filter(msg => typeof msg === 'string' && msg.trim()) : [];
   const safeCurrentIndex = Math.max(0, Math.min(currentIndex, safeMessages.length - 1));
   
-  const currentMessage = safeMessages[safeCurrentIndex] || '...';
+  const rawMessage = safeMessages[safeCurrentIndex] || '...';
+  const currentMessage = decodeMessage(rawMessage);
   const isComplete = safeCurrentIndex >= safeMessages.length - 1;
 
   const handleScreenClick = () => {

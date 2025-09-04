@@ -132,3 +132,25 @@ SummaryPanel.tsx:71 Uncaught TypeError: Cannot read properties of undefined (rea
 
 1. 我的程序之前非常稳定，现在在手机上上下滑动时会出现滚动条，整个程序会被滑动，Profile界面的列表甚至会被滑动的无法恢复初始位置
 2. 我现在找了一个和我的手机屏幕尺寸1：1的图片做测试，但是上下仍有黑边，参考3.jpg
+
+
+1. 对话中包含图片时，重绘对话框的时候会闪烁。重绘包括调整气泡透明度，等待回复时，之类的
+2. 每次重新开始游戏时要自动填入上次游戏时填入的占位符{{user}},{{char}}之类的
+
+1. 现在我自己做的游戏如果发布为非公开，我自己都不能玩。需要在我的故事卡片上添加游玩按钮
+2. 重新开始游戏后的对话框，出现红色的重新开始按钮。点击重新开始按钮进入输入占位符对话框。如果此时点击取消，就直接回到程序首页了。我想点击取消后仍然返回游戏。
+3. 我们的游戏从首页通过点击卡片继续游玩。这时应该是访问服务器获取游戏信息了。但是此时点击重新开始按钮，并没有自动填充占位符。是不是这些数据需要保存到服务器上？
+
+好的，我知道了。这个功能目前测试功能良好。我们继续开发。
+1. 对话完毕后并没有出现选项按钮。和普通的对话相比体验比较割裂。我不是很清楚一般agent和LLM的交互都是什么样的流程。一般的工具我看起来是这样的：LLM调用了工具->获取了结果->进行了分析。我们应该怎么做比较合适？
+
+1. 如果AI出现上述回复错误。我刷新后进入游戏，会永远显示等待下一章。能修正吗？
+2. 仍然报错，而且报错后黑屏
+aiService.ts:550 Failed to parse scene response: {"actions": ["show_dialogue", "data": {"speaker": "莉莉", "messages": ["\"啊？\" 她的注意力被拉回现实，手机从手中滑落在床单上。\"抱歉，我在想别的事。\" 她的声音突然变得清晰而专注，\"你刚说什么？\" 她的眼神变得警觉，仿佛突然意识到你可能发现了什么。", "\"你问我什么？\" 她的声音变得更加谨慎，\"关于工作室的事？\" 她的手指无意识地绕着颈间的银环转动，\"他们只是想帮助我事业发展，你知道的。\"", "\"或者……\" 她的声音突然变得低沉，\"你是担心我吗？\" 她的眼神变得柔和，\"你总是这么关心我，哥哥（姐姐）。\" 她的手指停止了转动，手机屏幕再次亮起，但这次她没有去看。"}} SyntaxError: Expected ',' or ']' after array element in JSON at position 36 (line 1 column 37)
+    at JSON.parse (<anonymous>)
+    at getNextSceneWithTools (aiService.ts:460:41)
+    at async GamePage.tsx:294:22
+    at async GamePage.tsx:386:5
+
+现在不黑屏了，显示An error occurred while processing the response.，如果用这个库(https://github.com/mangiucugna/json_repair)貌似能修复。我还看到一个别人做的二次开发(https://z0yrmerhgi8.feishu.cn/wiki/VbtXwe0aAiPTyXkA5s7cEBZcnib)你能找到什么可用的第三方工具吗？
+
