@@ -85,6 +85,7 @@ export interface LLMSettings {
   presencePenalty?: number;
   autoMaxTokens?: boolean;
   fetchedMaxTokens?: number | null;
+  reasoningEffort?: 'low' | 'medium' | 'high'; // 推理预算设置
 }
 
 export type SystemInstructionRole = 'system' | 'user' | 'assistant';

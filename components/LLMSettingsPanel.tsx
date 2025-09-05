@@ -183,6 +183,32 @@ const GameSettingsPanel: React.FC<{
                                 {renderLLMSlider("presencePenalty", t.presencePenalty, -2, 2, 0.1)}
                             </>
                         )}
+                        
+                        {/* Reasoning Effort Setting - Show for custom providers */}
+                        {settings.provider === 'custom' && (
+                            <div>
+                                <label htmlFor="reasoningEffort" className="block text-sm font-medium text-gray-600 dark:text-zinc-400 mb-2">
+                                    {t.reasoningEffort}
+                                </label>
+                                <select
+                                    id="reasoningEffort"
+                                    name="reasoningEffort"
+                                    value={settings.llm.reasoningEffort || 'medium'}
+                                    onChange={handleLLMChange}
+                                    className="block w-full pl-3 pr-10 py-2 text-base bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                                >
+                                    <option value="low">{t.reasoningEffortLow}</option>
+                                    <option value="medium">{t.reasoningEffortMedium}</option>
+                                    <option value="high">{t.reasoningEffortHigh}</option>
+                                </select>
+                                <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1">
+                                    {settings.language === 'zh' 
+                                        ? '控制AI的推理深度和复杂度，仅在模型支持时生效，高级设置可能消耗更多token' 
+                                        : 'Controls AI reasoning depth and complexity, only effective if model supports it, higher settings may consume more tokens'}
+                                </p>
+                            </div>
+                        )}
+                        
                         <div>
                             <label htmlFor="maxOutputTokens" className="block text-sm font-medium text-gray-600 dark:text-zinc-400">{t.maxTokens}</label>
                             <label htmlFor="autoMaxTokens" className="flex items-center gap-2 mt-2 cursor-pointer">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Page, GameSettings, Story, Playthrough, StoryFromDB, PlaythroughFromDB } from './types';
 import { DEFAULT_SETTINGS } from './constants';
-import useLocalStorage from './hooks/useLocalStorage';
+import { useUserSettings } from './hooks/useUserSettings';
 import BottomNavBar from './components/BottomNavBar';
 import TopHeader from './components/TopHeader';
 import HomePage from './pages/HomePage';
@@ -13,6 +13,9 @@ import LoadingOverlay from './components/LoadingOverlay';
 import AuthPage from './pages/AuthPage';
 import { useAuth } from './contexts/AuthContext';
 import { supabase } from './services/supabaseClient';
+import { initializePrompts } from './utils/promptInitializer';
+import './utils/promptDevTools'; // Enable dev tools in console
+import './test/gameEngineTest'; // Enable game engine tests in console
 
 
 // --- Data Transformation Helpers ---
@@ -60,7 +63,7 @@ const playthroughFromDb = (dbPlaythrough: PlaythroughFromDB): Playthrough => ({
 
 export default function App(): React.ReactNode {
   const { session, user, loading } = useAuth();
-  const [settings, setSettings] = useLocalStorage<GameSettings>('gemini-adventure-settings-v2', DEFAULT_SETTINGS);
+  const { settings, setSettings, isLoading: settingsLoading, error: settingsError } = useUserSettings();
   const [stories, setStories] = useState<Story[]>([]);
   const [playthroughs, setPlaythroughs] = useState<Playthrough[]>([]);
   
@@ -102,6 +105,11 @@ export default function App(): React.ReactNode {
 
     fetchStories();
     fetchPlaythroughs();
+    
+    // Initialize dynamic prompts
+    initializePrompts().catch(error => {
+        console.error('Failed to initialize prompts:', error);
+    });
   }, [session]);
   
   // Ensures a user profile exists. If not, creates one.
@@ -312,8 +320,8 @@ export default function App(): React.ReactNode {
     }
   };
   
-  if (loading) {
-    return <LoadingOverlay messages={['Initializing Session...']} />;
+  if (loading || settingsLoading) {
+    return <LoadingOverlay messages={['Initializing Session...', settingsLoading ? 'Loading Settings...' : '']} />;
   }
 
   if (!session) {

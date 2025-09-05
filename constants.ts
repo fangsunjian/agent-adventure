@@ -79,6 +79,10 @@ export const translations = {
     confirm: "Confirm",
     autoMaxTokens: "Auto-fetch",
     fetchedTokens: "Fetched:",
+    reasoningEffort: "Reasoning Effort",
+    reasoningEffortLow: "Low",
+    reasoningEffortMedium: "Medium", 
+    reasoningEffortHigh: "High",
     // Platform Translations
     navHome: "Home",
     navExplore: "Explore",
@@ -225,6 +229,10 @@ export const translations = {
     confirm: "确认",
     autoMaxTokens: "自动获取",
     fetchedTokens: "已获取:",
+    reasoningEffort: "推理预算",
+    reasoningEffortLow: "低",
+    reasoningEffortMedium: "中", 
+    reasoningEffortHigh: "高",
     // Platform Translations
     navHome: "主页",
     navExplore: "分类",
@@ -342,6 +350,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
     presencePenalty: 0,
     autoMaxTokens: true,
     fetchedMaxTokens: null,
+    reasoningEffort: 'medium', // 默认推理预算
   },
   systemInstructions: [
     { id: simpleUUID(), title: 'Game Master Persona', role: 'system', text: 'You are an expert text adventure game master creating a rich, descriptive, and engaging world.', enabled: true },

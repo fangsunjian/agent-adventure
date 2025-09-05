@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/copy-prompts.js && vite build",
+    "copy-prompts": "node scripts/copy-prompts.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import type { GameSettings, Story, Playthrough, Language } from '../types';
 import { translations } from '../constants';
 import StoryCard from '../components/StoryCard';
@@ -6,6 +6,7 @@ import { PlusIcon, SunIcon, MoonIcon, LogOutIcon, SettingsIcon } from '../compon
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import { useAuth } from '../contexts/AuthContext';
 import SettingsModal from '../components/SettingsModal';
+import { useUserSettings } from '../hooks/useUserSettings';
 
 interface ProfilePageProps {
     settings: GameSettings;

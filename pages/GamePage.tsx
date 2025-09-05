@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { GameStatus } from '../types';
 import type { Scene, HistoryItem, GameSettings, DebugLogEntry, SceneFragment, Memories, MilestoneSummaryItem, Story, Playthrough, DetectedPlaceholder } from '../types';
-import { getNextScene, getNextSceneWithTools, generateImage, generateGrandSummary, evaluateAndGenerateMilestone, type ToolHandler } from '../services/aiService';
+import { getNextScene, getNextSceneWithTools, getNextSceneWithGameEngine, generateImage, generateGrandSummary, evaluateAndGenerateMilestone, type ToolHandler } from '../services/aiService';
 import { translations, simpleUUID } from '../constants';
 import SceneDisplay from '../components/SceneDisplay';
 import ActionsPanel from '../components/ActionsPanel';
@@ -248,7 +248,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, [gameState, activeStory.id, onSavePlaythrough]);
   
 
-  const processAction = useCallback(async (action: string, currentState: typeof gameState, customSettings?: GameSettings, silent?: boolean) => {
+  const processAction = async (action: string, currentState: typeof gameState, customSettings?: GameSettings, silent?: boolean) => {
     if (!processedStory) return;
     
     setGameState(s => ({...s, gameStatus: GameStatus.Loading}));
@@ -290,18 +290,27 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     }
 
     try {
-      // Use enhanced function that supports tools when using custom provider
-      const result = await getNextSceneWithTools(historyForAPI, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
+      // Choose between new Game Engine or legacy system
+      // For now, use Game Engine if dialog tools are enabled and it's a custom provider
+      const useGameEngine = settingsToUse.enableDialogueTools && settingsToUse.provider === 'custom';
       
-      // If tools were called, continue the flow after tool completion
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        // Tools were executed, continue game normally without adding a new scene
-        setGameState(s => ({...s, gameStatus: GameStatus.Playing}));
-        return;
+      let result;
+      if (useGameEngine) {
+        console.log('🎮 Using new Game Engine...');
+        result = await getNextSceneWithGameEngine(historyForAPI, settingsToUse, memories, activeStory, logCommunication, controller.signal, toolHandler);
+      } else {
+        console.log('🔄 Using legacy system...');
+        result = await getNextSceneWithTools(historyForAPI, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
       }
       
-      // Regular scene generation
+      // Check if we have a scene to display (from either tool calls or regular generation)
       if (!result.scene) {
+        // If no scene but tools were called, this might be a dialogue-only interaction
+        if (result.toolCalls && result.toolCalls.length > 0) {
+          console.log('🎭 Tools executed without scene generation (dialogue-only interaction)');
+          setGameState(s => ({...s, gameStatus: GameStatus.Playing}));
+          return;
+        }
         throw new Error("No scene or tool calls returned from AI");
       }
       
@@ -330,13 +339,17 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
           }).catch(e => console.error("Failed to generate grand summary:", e));
       }
 
-      const milestoneContext = updatedHistoryWithModel.slice(-4);
-      evaluateAndGenerateMilestone(milestoneContext, settingsToUse, logCommunication)
-        .then(milestone => {
-            if (milestone) {
-                setGameState(s => ({ ...s, milestoneSummaries: [...s.milestoneSummaries, { turn: modelResponseCount, ...milestone }] }));
-            }
-        }).catch(e => console.error("Failed to evaluate milestone:", e));
+      // Only use legacy milestone evaluation if NOT using Game Engine
+      // The Game Engine handles milestone evaluation through the evaluate_milestone tool
+      if (!useGameEngine) {
+        const milestoneContext = updatedHistoryWithModel.slice(-4);
+        evaluateAndGenerateMilestone(milestoneContext, settingsToUse, logCommunication)
+          .then(milestone => {
+              if (milestone) {
+                  setGameState(s => ({ ...s, milestoneSummaries: [...s.milestoneSummaries, { turn: modelResponseCount, ...milestone }] }));
+              }
+          }).catch(e => console.error("Failed to evaluate milestone:", e));
+      }
       
       if (settingsToUse.enableImageGeneration) {
         generateImage(scene.imagePrompt, settingsToUse, logCommunication).then(imageUrl => {
@@ -380,7 +393,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     } finally {
       abortControllerRef.current = null;
     }
-  }, [settings, logCommunication, processedStory, t.errorTitle]);
+  };
 
   const handleAction = useCallback(async (action: string) => {
     await processAction(action, gameState);

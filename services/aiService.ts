@@ -1,6 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import type { SceneFragment, HistoryItem, GameSettings, SystemInstruction, CustomModel, Memories, MilestoneSummaryItem, GrandSummaryItem } from '../types';
+import type { SceneFragment, HistoryItem, GameSettings, SystemInstruction, CustomModel, Memories, MilestoneSummaryItem, GrandSummaryItem, Story } from '../types';
 import { jsonrepair } from 'jsonrepair';
+import { PROMPTS } from '../prompts';
+import { DynamicPromptLoader } from '../utils/dynamicPromptLoader';
+import { GameEngine } from './GameEngine';
 
 if (!process.env.GEMINI_API_KEY) {
   console.warn("GEMINI_API_KEY environment variable not set for Gemini. This is fine if you are using a custom provider.");
@@ -8,27 +11,7 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-const BASE_SYSTEM_INSTRUCTION_EN = `You are an expert text adventure game master. You will create a rich, descriptive, and engaging world for the player. 
-
-CRITICAL JSON FORMATTING RULES:
-- You must ALWAYS respond in valid JSON format ONLY
-- In JSON strings, you MUST properly escape special characters:
-  • Use \\" for double quotes inside strings
-  • Use \\\\ for backslashes
-  • Use \\n for line breaks
-  • Use \\t for tabs
-- Example: "She said, \\"Hello!\\" and walked away.\\nThe door closed."
-- NEVER use single quotes in JSON
-- ALWAYS use double quotes for keys and string values
-- NEVER include any markdown formatting, comments, or extra text outside JSON
-
-DIALOGUE TOOL USAGE RULES:
-- Use show_dialogue ONLY when an NPC has direct, specific dialogue to deliver to the player
-- Do NOT use show_dialogue for exploration results, scene descriptions, or narrative text
-- Do NOT use show_dialogue when the player is investigating, exploring, or performing actions that don't involve direct character conversation
-- When in doubt, use regular JSON scene responses instead of dialogue tools
-
-The player provides an action, you describe the outcome and new scene. Keep the story moving, introduce challenges and mysteries.`;;
+// Base system instructions are now loaded dynamically from files
 
 const RESPONSE_SCHEMA_EN = {
   type: Type.OBJECT,
@@ -41,27 +24,7 @@ const RESPONSE_SCHEMA_EN = {
   required: ["description", "image_prompt", "actions", "summary"]
 };
 
-const BASE_SYSTEM_INSTRUCTION_ZH = `你是一位专家级的文字冒险游戏大师。你将为玩家创造一个丰富、生动、引人入胜的世界。
-
-关键JSON格式规则：
-- 你必须始终只使用有效的JSON格式响应
-- 在JSON字符串中，你必须正确转义特殊字符：
-  • 字符串内的双引号使用 \\"
-  • 反斜杠使用 \\\\
-  • 换行使用 \\n
-  • 制表符使用 \\t
-- 示例："她说，\\"你好！\\"然后走开了。\\n门关上了。"
-- 绝不使用单引号
-- 键和字符串值始终使用双引号
-- 绝不包含markdown格式、注释或JSON之外的额外文本
-
-对话工具使用规则：
-- 只有当NPC有直接、具体的对话要传达给玩家时才使用show_dialogue
-- 不要将show_dialogue用于探索结果、场景描述或叙述文本
-- 当玩家正在调查、探索或执行不涉及直接角色对话的行动时，不要使用show_dialogue
-- 如有疑问，使用常规JSON场景响应而非对话工具
-
-玩家提供行动，你描述结果和新场景。保持故事向前发展，引入挑战和谜团。所有内容都必须使用简体中文。`;;
+// Chinese system instructions are now loaded dynamically from files
 
 const RESPONSE_SCHEMA_ZH = {
   type: Type.OBJECT,
@@ -98,64 +61,42 @@ const MILESTONE_SCHEMA_ZH = {
     required: ["is_milestone", "summary", "reason", "tags", "priority"]
 };
 
-// Tool definitions for dialogue system
-const DIALOGUE_TOOLS = [
-    {
-        type: "function",
-        function: {
-            name: "show_dialogue",
-            description: "Use this function ONLY when creating direct NPC-to-player conversations where the NPC has specific dialogue to deliver. Do NOT use for narrative descriptions, exploration results, or general scene descriptions. Use regular scene responses instead when the player is exploring, investigating, or performing actions that don't involve direct character conversation.",
-            parameters: {
-                type: "object",
-                properties: {
-                    speaker: {
-                        type: "string",
-                        description: "Name of the character speaking (e.g., 'Village Elder', '老村长')"
+// Tool definitions for dialogue system - descriptions loaded dynamically
+const createDialogueTools = (language: 'en' | 'zh') => {
+    const description = DynamicPromptLoader.getDialogueToolDescriptionSync(language) || 
+                       PROMPTS[language].dialogueToolDescription; // Fallback to static
+    
+    return [
+        {
+            type: "function",
+            function: {
+                name: "show_dialogue",
+                description: description,
+                parameters: {
+                    type: "object",
+                    properties: {
+                        speaker: {
+                            type: "string",
+                            description: language === 'zh' ? "说话角色的名称" : "Name of the character speaking (e.g., 'Village Elder', '老村长')"
+                        },
+                        messages: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: language === 'zh' 
+                                ? "对话消息数组，每条消息将逐一显示。将长篇对话分割为多个句子/想法以获得更好的节奏感。每个元素应该是一个完整的句子或想法。重要：对引号使用正确的JSON转义\\\"，但保持自然的句子结构。示例：[\"你好，旅行者！\", \"我一直在等待像你这样的人。\", \"村子里有麻烦需要你的帮助。\"]"
+                                : "Array of dialogue messages that will be displayed one by one. Split long speeches into multiple sentences/thoughts for better pacing. Each element should be one complete sentence or thought. CRITICAL: Use proper JSON escaping for quotes with \\\" but keep natural sentence structure. Example: [\"Hello traveler!\", \"I've been waiting for someone like you.\", \"There's trouble in the village that needs your help.\"]"
+                        },
+                        avatar: {
+                            type: "string",
+                            description: language === 'zh' ? "说话者头像URL（可选）" : "Optional avatar URL for the speaker"
+                        }
                     },
-                    messages: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "Array of dialogue messages that will be displayed one by one. Split long speeches into multiple sentences/thoughts for better pacing. Each element should be one complete sentence or thought. CRITICAL: Use proper JSON escaping for quotes with \\\" but keep natural sentence structure. Example: [\"Hello traveler!\", \"I've been waiting for someone like you.\", \"There's trouble in the village that needs your help.\"]"
-                    },
-                    avatar: {
-                        type: "string",
-                        description: "Optional avatar URL for the speaker"
-                    }
-                },
-                required: ["speaker", "messages"]
+                    required: ["speaker", "messages"]
+                }
             }
         }
-    }
-];;;;
-
-const DIALOGUE_TOOLS_ZH = [
-    {
-        type: "function",
-        function: {
-            name: "show_dialogue",
-            description: "仅当创建NPC与玩家的直接对话时使用此功能，即NPC有具体对话内容要传达。不要用于叙述描述、探索结果或一般场景描述。当玩家探索、调查或执行不涉及直接角色对话的行动时，请使用常规场景回应。",
-            parameters: {
-                type: "object",
-                properties: {
-                    speaker: {
-                        type: "string",
-                        description: "说话角色的名称"
-                    },
-                    messages: {
-                        type: "array",
-                        items: { type: "string" },
-                        description: "对话消息数组，每条消息将逐一显示。将长篇对话分割为多个句子/想法以获得更好的节奏感。每个元素应该是一个完整的句子或想法。重要：对引号使用正确的JSON转义\\\"，但保持自然的句子结构。示例：[\"你好，旅行者！\", \"我一直在等待像你这样的人。\", \"村子里有麻烦需要你的帮助。\"]"
-                    },
-                    avatar: {
-                        type: "string",
-                        description: "说话者头像URL（可选）"
-                    }
-                },
-                required: ["speaker", "messages"]
-            }
-        }
-    }
-];;;;
+    ];
+};
 
 // Tool handler interface
 export interface ToolCall {
@@ -194,22 +135,14 @@ export async function getNextSceneWithTools(
             return await getNextScene(history, settings, memories, logCommunication, abortSignal);
         }
 
-        const tools = settings.language === 'zh' ? DIALOGUE_TOOLS_ZH : DIALOGUE_TOOLS;
+        const tools = createDialogueTools(settings.language);
         
-        // Check if we should force tool usage based on user action
-        const shouldForceTools = openAIMessages.some(msg => 
-            msg.content.toLowerCase().includes('talk to') || 
-            msg.content.toLowerCase().includes('speak with') ||
-            msg.content.includes('与') && msg.content.includes('对话') ||
-            msg.content.includes('找') && (msg.content.includes('说话') || msg.content.includes('交谈'))
-        );
-        
-        // Build base payload
+        // Build base payload - let AI decide when to use dialogue tools
         const requestPayload: any = {
             model: settings.customModelId || 'gpt-4-turbo',
             messages: openAIMessages,
             tools: tools,
-            tool_choice: shouldForceTools ? "required" : "auto",
+            tool_choice: "auto",
             temperature: Number(settings.llm.temperature || 0.7),
             top_p: Number(settings.llm.topP || 1),
             max_tokens: Number(settings.llm.maxOutputTokens || 1000),
@@ -222,6 +155,23 @@ export async function getNextSceneWithTools(
         if (!isGoogleAPI) {
             requestPayload.frequency_penalty = Number(settings.llm.frequencyPenalty || 0);
             requestPayload.presence_penalty = Number(settings.llm.presencePenalty || 0);
+            
+            // Add reasoning effort if set by user
+            if (settings.llm.reasoningEffort) {
+                requestPayload.reasoning_effort = settings.llm.reasoningEffort;
+            }
+            
+            // Add JSON schema for structured output (when not using tool calls extensively)
+            if (settings.useJsonSchemaForCustom) {
+                const geminiSchema = settings.language === 'zh' ? RESPONSE_SCHEMA_ZH : RESPONSE_SCHEMA_EN;
+                const jsonSchema = convertGeminiSchemaToJSONSchema(geminiSchema);
+
+                if (settings.lmStudioCompatibleJson) {
+                    requestPayload.response_format = { type: "json_schema", json_schema: { schema: jsonSchema } };
+                } else {
+                    requestPayload.response_format = { type: "json_object", schema: jsonSchema };
+                }
+            }
         }
         
         logCommunication('custom_request_getNextSceneWithTools', requestPayload);
@@ -734,6 +684,69 @@ export async function getNextSceneWithTools(
 }
 
 /**
+ * 新的工具化游戏引擎入口 - 使用完全工具化的系统
+ */
+export async function getNextSceneWithGameEngine(
+    history: HistoryItem[],
+    settings: GameSettings,
+    memories: Memories,
+    activeStory: Story,
+    logCommunication: (type: string, data: any) => void,
+    abortSignal: AbortSignal,
+    toolHandler?: ToolHandler
+): Promise<{ scene?: SceneFragment; rawResponse: string; toolCalls?: ToolCall[] }> {
+    
+    try {
+        console.log('🎮 Using new Game Engine for scene generation...');
+        logCommunication('game_engine_start', { historyLength: history.length, settings: settings.provider });
+        
+        // 使用新的游戏引擎处理
+        const result = await GameEngine.processGameTurn(
+            history,
+            settings,
+            memories,
+            activeStory,
+            logCommunication,
+            abortSignal,
+            toolHandler
+        );
+        
+        console.log('✅ Game Engine processing completed:', {
+            hasScene: !!result.scene,
+            toolsUsed: result.engineData?.toolsUsed,
+            executionTime: result.engineData?.executionTime
+        });
+        
+        return {
+            scene: result.scene,
+            rawResponse: result.rawResponse,
+            toolCalls: result.toolCalls?.map(tc => ({
+                id: tc.id || `tool-${Date.now()}`,
+                type: 'function' as const,
+                function: tc.function
+            })) || []
+        };
+        
+    } catch (error) {
+        console.error('❌ Game Engine failed, falling back to legacy system:', error);
+        logCommunication('game_engine_fallback', { 
+            error: error.message,
+            fallbackTo: 'getNextSceneWithTools'
+        });
+        
+        // 回退到原有系统
+        return await getNextSceneWithTools(
+            history,
+            settings,
+            memories,
+            logCommunication,
+            abortSignal,
+            toolHandler
+        );
+    }
+}
+
+/**
  * Recursively converts a Gemini-style schema object to a standard JSON Schema format.
  */
 function convertGeminiSchemaToJSONSchema(geminiSchema: any): any {
@@ -762,7 +775,8 @@ function convertGeminiSchemaToJSONSchema(geminiSchema: any): any {
 }
 
 function buildPromptParts(history: HistoryItem[], settings: GameSettings): { geminiSystemInstruction: string, openAIMessages: {role: string, content: string}[] } {
-    const baseInstruction = settings.language === 'zh' ? BASE_SYSTEM_INSTRUCTION_ZH : BASE_SYSTEM_INSTRUCTION_EN;
+    const baseInstruction = DynamicPromptLoader.getBaseSystemInstructionSync(settings.language) || 
+                            PROMPTS[settings.language].baseSystemInstruction; // Fallback to static
     const userInstructionsText = settings.systemInstructions
         .filter(instr => instr.enabled)
         .map(instr => instr.text)
@@ -907,7 +921,7 @@ export async function getNextScene(
             }
         }
 
-        const requestPayload = {
+        const requestPayload: any = {
             model: settings.customModelId || 'gpt-4-turbo',
             messages: openAIMessages,
             response_format: response_format,
@@ -917,6 +931,11 @@ export async function getNextScene(
             frequency_penalty: Number(settings.llm.frequencyPenalty),
             presence_penalty: Number(settings.llm.presencePenalty),
         };
+        
+        // Add reasoning effort if set by user
+        if (settings.llm.reasoningEffort) {
+            requestPayload.reasoning_effort = settings.llm.reasoningEffort;
+        }
         logCommunication('custom_request_getNextScene', requestPayload);
 
         try {

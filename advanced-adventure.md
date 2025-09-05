@@ -154,3 +154,22 @@ aiService.ts:550 Failed to parse scene response: {"actions": ["show_dialogue", "
 
 现在不黑屏了，显示An error occurred while processing the response.，如果用这个库(https://github.com/mangiucugna/json_repair)貌似能修复。我还看到一个别人做的二次开发(https://z0yrmerhgi8.feishu.cn/wiki/VbtXwe0aAiPTyXkA5s7cEBZcnib)你能找到什么可用的第三方工具吗？
 
+
+我决定对游戏进行大改动，你做好计划告诉我。
+1. 已知"tool_choice": "required"能被100%调用。基于这个观察，我准备把所有游戏系统放到工具里让AI调用
+2. 工具可以根据场景需要动态加载
+3. 我们的对话系统，提示选项，总结系统全都放在工具里。小总结时放小总结工具，大总结时放大总结工具。
+4. (https://openrouter.ai/docs/features/tool-calling)的How Interleaved Thinking Works段落你研究一下对我们的系统有没有帮助
+
+好的，开始之前记住几点。然后开始干活。
+1. 我们知道AI的json处理能力非常不可靠，工具的格式已经是json了，尽量不要在工具的返回消息比如show_system_message的消息里再使用json。
+2. 谨慎处理每个步骤可能发生的错误。AI的每步返回都可能出问题。格式可能不正确。之前的jsonrepair别忘了用。
+3. 记住追加错误日志，可以直接输出控制台，也可以放在我们的调试窗口
+
+1.为什么我们还有custom_request_evaluateMilestone？不是放到工具里了吗？
+2.AI这次没调用工具。我看到你的请求里有两个"Game continued..."？怎么产生的？
+
+1. tool_choice: "required"是让AI必须选一个或多个工具调用，看样子我们需要把游戏进行
+
+
+

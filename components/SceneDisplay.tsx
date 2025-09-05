@@ -122,7 +122,34 @@ const SceneDisplay: React.FC<SceneDisplayProps> = ({ history, onRegenerate, isLo
                     );
                 } catch (e) {
                     console.error("Failed to parse error item:", item.parts[0].text);
-                    return <div key={index} className="text-red-500">Error rendering error message.</div>;
+                    return (
+                        <div key={index} className="flex justify-start">
+                            <div className="flex flex-col items-start w-full max-w-xl">
+                                <p className="text-sm font-semibold text-red-500 dark:text-red-400 ml-3 mb-1">{charName}</p>
+                                <div className="group w-full">
+                                    <div className="bg-red-50 dark:bg-red-900/40 border-l-4 border-red-500 rounded-r-md p-4">
+                                        <p className="font-semibold text-red-600 dark:text-red-400 text-sm mb-1">解析错误</p>
+                                        <p className="text-red-800 dark:text-gray-300 font-serif break-words">无法解析错误消息格式</p>
+                                        <details className="mt-2">
+                                            <summary className="text-xs text-red-600 dark:text-red-400 cursor-pointer">查看原始数据</summary>
+                                            <pre className="text-xs text-red-700 dark:text-red-300 mt-1 whitespace-pre-wrap">{item.parts[0].text}</pre>
+                                        </details>
+                                    </div>
+                                    {isLast && !isLoading && (
+                                    <div className="flex justify-end mt-1 pr-1">
+                                        <button
+                                            onClick={onRegenerate}
+                                            className="p-1.5 text-gray-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-500 rounded-full bg-gray-200/50 dark:bg-zinc-800/50 opacity-100 transition-opacity duration-200"
+                                            title={regenerateLabel}
+                                        >
+                                            <RegenerateIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
                 }
             }
 
@@ -147,7 +174,11 @@ const SceneDisplay: React.FC<SceneDisplayProps> = ({ history, onRegenerate, isLo
                       ) : null}
                       <div 
                         className="markdown-content p-4 text-lg leading-relaxed font-serif text-gray-700 dark:text-zinc-300 break-words"
-                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(scene.description) as string) }}
+                        dangerouslySetInnerHTML={{ 
+                          __html: DOMPurify.sanitize(
+                            marked.parse(scene.description.replace(/\\n\\n/g, '\n\n').replace(/\n{3,}/g, '\n\n')) as string
+                          ) 
+                        }}
                       />
                     </div>
                     {isLast && !isLoading && !isOpeningScene && (
@@ -166,7 +197,34 @@ const SceneDisplay: React.FC<SceneDisplayProps> = ({ history, onRegenerate, isLo
               );
             } catch (e) {
               console.error("Failed to parse model response:", item.parts[0].text);
-              return <div key={index} className="text-red-500">Error rendering scene.</div>;
+              return (
+                <div key={index} className="flex justify-start">
+                    <div className="flex flex-col items-start w-full max-w-xl">
+                        <p className="text-sm font-semibold text-red-500 dark:text-red-400 ml-3 mb-1">{charName}</p>
+                        <div className="group w-full">
+                            <div className="bg-red-50 dark:bg-red-900/40 border-l-4 border-red-500 rounded-r-md p-4">
+                                <p className="font-semibold text-red-600 dark:text-red-400 text-sm mb-1">场景解析错误</p>
+                                <p className="text-red-800 dark:text-gray-300 font-serif break-words">AI返回的数据格式无效，无法渲染场景</p>
+                                <details className="mt-2">
+                                    <summary className="text-xs text-red-600 dark:text-red-400 cursor-pointer">查看原始数据</summary>
+                                    <pre className="text-xs text-red-700 dark:text-red-300 mt-1 whitespace-pre-wrap">{item.parts[0].text}</pre>
+                                </details>
+                            </div>
+                            {isLast && !isLoading && (
+                            <div className="flex justify-end mt-1 pr-1">
+                                <button
+                                    onClick={onRegenerate}
+                                    className="p-1.5 text-gray-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-500 rounded-full bg-gray-200/50 dark:bg-zinc-800/50 opacity-100 transition-opacity duration-200"
+                                    title={regenerateLabel}
+                                >
+                                    <RegenerateIcon className="w-5 h-5" />
+                                </button>
+                            </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+              );
             }
           }
           return null;
