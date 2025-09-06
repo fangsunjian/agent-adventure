@@ -133,7 +133,15 @@ export interface Memories {
 
 export type Page = 'home' | 'explore' | 'profile' | 'game';
 
-export type LibraryCardType = 'character' | 'location' | 'item' | 'quest' | 'setting' | 'custom';
+export type LibraryCardType = 'character' | 'location' | 'item' | 'quest' | 'setting' | 'custom' | 'map';
+
+export interface MapLocation {
+  id: string;
+  x: number;  // X coordinate on the map (0-1000 scale)
+  y: number;  // Y coordinate on the map (0-1000 scale)
+  name: string;
+  description: string;
+}
 
 export interface LibraryCard {
   id: string;
@@ -142,6 +150,9 @@ export interface LibraryCard {
   content: string;
   keywords: string[];
   customTypeName?: string;
+  // Map-specific fields
+  mapImageUrl?: string;
+  mapLocations?: MapLocation[];
 }
 
 // This type represents the data structure used within the React app (camelCase)

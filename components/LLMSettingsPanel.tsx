@@ -240,39 +240,41 @@ const GameSettingsPanel: React.FC<{
                     </div>
                 </div>
                 <div className="flex-grow flex flex-col min-h-0">
-                    <h2 className="text-xl font-bold font-serif text-gray-700 dark:text-zinc-300 mb-4 flex-shrink-0">{t.systemInstructions}</h2>
-                    <div className="space-y-2 overflow-y-auto flex-grow pr-2">
-                        {settings.systemInstructions.map((instr, index) => (
-                            <div
-                                key={instr.id}
-                                className="flex items-center gap-2 group p-2 rounded-md bg-gray-100 dark:bg-zinc-800/50"
-                                draggable
-                                onDragStart={() => dragItem.current = index}
-                                onDragEnter={() => dragOverItem.current = index}
-                                onDragEnd={handleDragSort}
-                                onDragOver={(e) => e.preventDefault()}
-                            >
-                                <span className="cursor-grab text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300"><GripVerticalIcon className="w-5 h-5"/></span>
-                                <label htmlFor={`instr-toggle-${instr.id}`} className="flex items-center gap-2 flex-grow cursor-pointer overflow-hidden">
-                                    <input
-                                        id={`instr-toggle-${instr.id}`}
-                                        type="checkbox"
-                                        checked={instr.enabled}
-                                        onChange={() => toggleInstruction(instr.id)}
-                                        className="h-4 w-4 text-indigo-600 bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 rounded focus:ring-indigo-500 shrink-0"
-                                    />
-                                    <span className="text-sm truncate text-gray-700 dark:text-zinc-300 select-none" title={instr.title}>{instr.title}</span>
-                                </label>
-                                <button onClick={() => setEditingInstruction(instr)} className="px-3 py-1 text-xs bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600">Edit</button>
-                                <button onClick={() => removeInstruction(instr.id)} className="p-1 text-gray-400 dark:text-zinc-500 hover:text-red-500">
-                                    <TrashIcon className="w-4 h-4"/>
-                                </button>
-                            </div>
-                        ))}
+                    <h2 className="text-xl font-bold font-serif text-gray-700 dark:text-zinc-300 mb-4 flex-shrink-0">{t.systemInstructions} ({settings.systemInstructions.length})</h2>
+                    <div className="flex-1 min-h-0 flex flex-col">
+                        <div className="flex-1 overflow-y-auto space-y-2 pr-2 mb-2 min-h-24">
+                            {settings.systemInstructions.map((instr, index) => (
+                                <div
+                                    key={instr.id}
+                                    className="flex items-center gap-2 group p-2 rounded-md bg-gray-100 dark:bg-zinc-800/50"
+                                    draggable
+                                    onDragStart={() => dragItem.current = index}
+                                    onDragEnter={() => dragOverItem.current = index}
+                                    onDragEnd={handleDragSort}
+                                    onDragOver={(e) => e.preventDefault()}
+                                >
+                                    <span className="cursor-grab text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300"><GripVerticalIcon className="w-5 h-5"/></span>
+                                    <label htmlFor={`instr-toggle-${instr.id}`} className="flex items-center gap-2 flex-grow cursor-pointer overflow-hidden">
+                                        <input
+                                            id={`instr-toggle-${instr.id}`}
+                                            type="checkbox"
+                                            checked={instr.enabled}
+                                            onChange={() => toggleInstruction(instr.id)}
+                                            className="h-4 w-4 text-indigo-600 bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 rounded focus:ring-indigo-500 shrink-0"
+                                        />
+                                        <span className="text-sm truncate text-gray-700 dark:text-zinc-300 select-none" title={instr.title}>{instr.title}</span>
+                                    </label>
+                                    <button onClick={() => setEditingInstruction(instr)} className="px-3 py-1 text-xs bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600">Edit</button>
+                                    <button onClick={() => removeInstruction(instr.id)} className="p-1 text-gray-400 dark:text-zinc-500 hover:text-red-500">
+                                        <TrashIcon className="w-4 h-4"/>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <button onClick={addInstruction} className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600 transition-colors duration-200 text-sm">
+                            <PlusIcon className="w-5 h-5" /> {t.addInstruction}
+                        </button>
                     </div>
-                    <button onClick={addInstruction} className="mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600 transition-colors duration-200 text-sm">
-                        <PlusIcon className="w-5 h-5" /> {t.addInstruction}
-                    </button>
                 </div>
             </div>
             <SystemInstructionEditorModal

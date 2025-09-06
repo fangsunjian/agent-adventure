@@ -179,6 +179,7 @@ const CreatePage: React.FC<CreatePageProps> = ({ settings, storyToEdit, onSave, 
             quest: t.cardTypeQuest,
             setting: t.cardTypeSetting,
             custom: t.cardTypeCustom,
+            map: t.cardTypeMap,
         };
         return (
              <div className="space-y-4">

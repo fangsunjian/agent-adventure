@@ -111,7 +111,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
   return (
     <div className="absolute inset-0 bg-black/70 flex justify-center z-50 backdrop-blur-md overflow-y-auto p-4 md:py-8">
-      <div className="bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-800 rounded-lg shadow-xl p-6 w-full max-w-md my-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-800 rounded-lg shadow-xl p-6 w-full max-w-md max-h-full overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-800 dark:text-zinc-200 font-serif">{t.title}</h2>
             <div className="flex items-center gap-2">
