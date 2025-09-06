@@ -65,14 +65,37 @@ export class GameToolRegistry {
             type: 'string',
             description: '说话者头像URL（可选）'
           },
-          autoGenerateActions: {
+          // 必填的行动选项生成参数
+          actions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '玩家可以选择的行动选项数组'
+          },
+          actionContext: {
+            type: 'string',
+            description: '行动选项的上下文说明'
+          },
+          // 必填的小总结参数
+          summary: {
+            type: 'string',
+            description: '对当前对话的简要总结'
+          },
+          isImportantMemory: {
             type: 'boolean',
-            description: '是否自动生成行动选项（默认：true）'
+            description: '是否为重要记忆（可选，默认false）'
           }
         },
-        required: ['speaker', 'messages']
+        required: ['speaker', 'messages', 'actions', 'summary']
       },
-      handler: async (args: { speaker: string; messages: string[]; avatar?: string; autoGenerateActions?: boolean }, context) => {
+      handler: async (args: { 
+        speaker: string; 
+        messages: string[]; 
+        avatar?: string;
+        actions: string[];
+        actionContext?: string;
+        summary: string;
+        isImportantMemory?: boolean;
+      }, context) => {
         try {
           console.log('💬 Showing dialogue:', args);
           context.logCommunication('tool_show_dialogue', args);
@@ -85,6 +108,14 @@ export class GameToolRegistry {
           if (!Array.isArray(args.messages) || args.messages.length === 0) {
             throw new Error('Messages array is required and must not be empty');
           }
+
+          if (!Array.isArray(args.actions) || args.actions.length === 0) {
+            throw new Error('Actions array is required and must not be empty');
+          }
+
+          if (!args.summary || typeof args.summary !== 'string') {
+            throw new Error('Summary is required and must be a string');
+          }
           
           // 清理和验证消息
           const cleanMessages = args.messages
@@ -95,11 +126,15 @@ export class GameToolRegistry {
           if (cleanMessages.length === 0) {
             throw new Error('No valid messages found after filtering');
           }
-          
-          // 自动生成行动选项（默认启用）
-          let actionData = null;
-          if (args.autoGenerateActions !== false) {
-            actionData = await this.generateContextualActions(context, 'dialogue');
+
+          // 清理和验证行动选项
+          const cleanActions = args.actions
+            .filter(action => typeof action === 'string' && action.trim().length > 0)
+            .map(action => action.trim())
+            .slice(0, 6); // 限制最多6个选项
+
+          if (cleanActions.length === 0) {
+            throw new Error('No valid actions found after filtering');
           }
           
           return {
@@ -110,7 +145,17 @@ export class GameToolRegistry {
               avatar: args.avatar?.trim() || '',
               timestamp: Date.now()
             },
-            actionData: actionData
+            actionData: {
+              actions: cleanActions,
+              context: args.actionContext?.trim() || '',
+              timestamp: Date.now()
+            },
+            summaryData: {
+              summary: args.summary.trim(),
+              type: 'minor',
+              isImportantMemory: args.isImportantMemory || false,
+              timestamp: Date.now()
+            }
           };
         } catch (error) {
           console.error('❌ Error in show_dialogue tool:', error);
@@ -131,10 +176,10 @@ export class GameToolRegistry {
       priority: 1
     });
 
-    // 场景推进工具
+    // 场景推进工具 - 完全重构，集成所有必需功能
     this.register({
       name: 'advance_scene',
-      description: '推进游戏场景，描述新的环境、情况和发生的事件，自动包含行动选项生成和智能总结',
+      description: '推进游戏场景，描述新的环境、情况和发生的事件。必须生成行动选项和小总结。',
       parameters: {
         type: 'object',
         properties: {
@@ -146,28 +191,35 @@ export class GameToolRegistry {
             type: 'string',
             description: '可选的场景图像描述，用于生成配图'
           },
-          autoGenerateActions: {
-            type: 'boolean',
-            description: '是否自动生成行动选项（默认：true）'
+          // 必填的行动选项生成参数
+          actions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '玩家可以选择的行动选项数组'
           },
-          autoCreateSummary: {
-            type: 'boolean',
-            description: '是否自动创建总结（默认：true）'
-          },
-          summaryType: {
+          actionContext: {
             type: 'string',
-            enum: ['minor', 'major', 'none'],
-            description: '总结类型：小总结、大总结、或不创建总结'
+            description: '行动选项的上下文说明'
+          },
+          // 必填的小总结参数
+          summary: {
+            type: 'string',
+            description: '对当前场景的简要总结'
+          },
+          isImportantMemory: {
+            type: 'boolean',
+            description: '是否为重要记忆（可选，默认false）'
           }
         },
-        required: ['description']
+        required: ['description', 'actions', 'summary']
       },
       handler: async (args: { 
         description: string; 
         imagePrompt?: string; 
-        autoGenerateActions?: boolean;
-        autoCreateSummary?: boolean;
-        summaryType?: 'minor' | 'major' | 'none';
+        actions: string[];
+        actionContext?: string;
+        summary: string;
+        isImportantMemory?: boolean;
       }, context) => {
         try {
           console.log('🎬 Advancing scene:', args);
@@ -177,6 +229,24 @@ export class GameToolRegistry {
           if (!args.description || typeof args.description !== 'string') {
             throw new Error('Scene description is required and must be a string');
           }
+
+          if (!Array.isArray(args.actions) || args.actions.length === 0) {
+            throw new Error('Actions array is required and must not be empty');
+          }
+
+          if (!args.summary || typeof args.summary !== 'string') {
+            throw new Error('Summary is required and must be a string');
+          }
+          
+          // 清理和验证行动选项
+          const cleanActions = args.actions
+            .filter(action => typeof action === 'string' && action.trim().length > 0)
+            .map(action => action.trim())
+            .slice(0, 6); // 限制最多6个选项
+
+          if (cleanActions.length === 0) {
+            throw new Error('No valid actions found after filtering');
+          }
           
           // 基础场景数据
           const sceneData = {
@@ -185,18 +255,20 @@ export class GameToolRegistry {
             timestamp: Date.now()
           };
           
-          // 自动生成行动选项（默认启用）
-          let actionData = null;
-          if (args.autoGenerateActions !== false) {
-            actionData = await this.generateContextualActions(context, 'exploration');
-          }
+          // 行动数据
+          const actionData = {
+            actions: cleanActions,
+            context: args.actionContext?.trim() || '',
+            timestamp: Date.now()
+          };
           
-          // 自动创建总结（默认启用）
-          let summaryData = null;
-          if (args.autoCreateSummary !== false && args.summaryType !== 'none') {
-            const summaryType = args.summaryType || this.determineSummaryType(context);
-            summaryData = await this.generateContextualSummary(context, summaryType);
-          }
+          // 小总结数据
+          const summaryData = {
+            summary: args.summary.trim(),
+            type: 'minor',
+            isImportantMemory: args.isImportantMemory || false,
+            timestamp: Date.now()
+          };
           
           return {
             success: true,
@@ -220,70 +292,6 @@ export class GameToolRegistry {
       },
       requiredFor: ['exploration', 'action', 'special_event'],
       priority: 1
-    });
-
-    // 行动选项生成工具
-    this.register({
-      name: 'generate_actions',
-      description: '为玩家生成可选择的行动选项',
-      parameters: {
-        type: 'object',
-        properties: {
-          actions: {
-            type: 'array',
-            items: { type: 'string' },
-            description: '玩家可以选择的行动选项数组'
-          },
-          context: {
-            type: 'string',
-            description: '行动选项的上下文说明'
-          }
-        },
-        required: ['actions']
-      },
-      handler: async (args: { actions: string[]; context?: string }, context) => {
-        try {
-          console.log('⚡ Generating actions:', args);
-          context.logCommunication('tool_generate_actions', args);
-          
-          // 验证和清理行动选项
-          if (!Array.isArray(args.actions) || args.actions.length === 0) {
-            throw new Error('Actions array is required and must not be empty');
-          }
-          
-          const cleanActions = args.actions
-            .filter(action => typeof action === 'string' && action.trim().length > 0)
-            .map(action => action.trim())
-            .slice(0, 6); // 限制最多6个选项
-          
-          if (cleanActions.length === 0) {
-            throw new Error('No valid actions found after filtering');
-          }
-          
-          return {
-            success: true,
-            actionData: {
-              actions: cleanActions,
-              context: args.context?.trim() || '',
-              timestamp: Date.now()
-            }
-          };
-        } catch (error) {
-          console.error('❌ Error in generate_actions tool:', error);
-          context.logCommunication('tool_error_generate_actions', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            fallback: {
-              actions: ['继续探索', '停下来思考', '查看周围'],
-              context: '选择你的下一步行动'
-            }
-          };
-        }
-      },
-      requiredFor: ['exploration', 'action'],
-      priority: 2
     });
 
     // 系统消息工具
@@ -342,136 +350,8 @@ export class GameToolRegistry {
   }
 
   private static registerSummaryTools() {
-    // 小总结工具
-    this.register({
-      name: 'create_minor_summary',
-      description: '创建当前场景或几个回合的简短总结',
-      parameters: {
-        type: 'object',
-        properties: {
-          summary: {
-            type: 'string',
-            description: '简短的总结文本'
-          },
-          keyEvents: {
-            type: 'array',
-            items: { type: 'string' },
-            description: '关键事件列表'
-          }
-        },
-        required: ['summary']
-      },
-      handler: async (args: { summary: string; keyEvents?: string[] }, context) => {
-        try {
-          console.log('📝 Creating minor summary:', args);
-          context.logCommunication('tool_create_minor_summary', args);
-          
-          if (!args.summary || typeof args.summary !== 'string') {
-            throw new Error('Summary is required and must be a string');
-          }
-          
-          const cleanKeyEvents = Array.isArray(args.keyEvents) 
-            ? args.keyEvents.filter(event => typeof event === 'string' && event.trim().length > 0)
-            : [];
-          
-          return {
-            success: true,
-            summaryData: {
-              summary: args.summary.trim(),
-              keyEvents: cleanKeyEvents,
-              type: 'minor',
-              timestamp: Date.now()
-            }
-          };
-        } catch (error) {
-          console.error('❌ Error in create_minor_summary tool:', error);
-          context.logCommunication('tool_error_create_minor_summary', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            fallback: {
-              summary: '最近发生了一些有趣的事情',
-              keyEvents: [],
-              type: 'minor'
-            }
-          };
-        }
-      },
-      requiredFor: ['summary'],
-      priority: 4
-    });
-
-    // 大总结工具
-    this.register({
-      name: 'create_major_summary',
-      description: '创建章节或重要段落的详细总结',
-      parameters: {
-        type: 'object',
-        properties: {
-          summary: {
-            type: 'string',
-            description: '详细的总结文本'
-          },
-          achievements: {
-            type: 'array',
-            items: { type: 'string' },
-            description: '玩家取得的成就或进展'
-          },
-          newMemories: {
-            type: 'array',
-            items: { type: 'string' },
-            description: '需要记住的新信息'
-          }
-        },
-        required: ['summary']
-      },
-      handler: async (args: { summary: string; achievements?: string[]; newMemories?: string[] }, context) => {
-        try {
-          console.log('📚 Creating major summary:', args);
-          context.logCommunication('tool_create_major_summary', args);
-          
-          if (!args.summary || typeof args.summary !== 'string') {
-            throw new Error('Summary is required and must be a string');
-          }
-          
-          const cleanAchievements = Array.isArray(args.achievements)
-            ? args.achievements.filter(item => typeof item === 'string' && item.trim().length > 0)
-            : [];
-          
-          const cleanMemories = Array.isArray(args.newMemories)
-            ? args.newMemories.filter(item => typeof item === 'string' && item.trim().length > 0)
-            : [];
-          
-          return {
-            success: true,
-            summaryData: {
-              summary: args.summary.trim(),
-              achievements: cleanAchievements,
-              newMemories: cleanMemories,
-              type: 'major',
-              timestamp: Date.now()
-            }
-          };
-        } catch (error) {
-          console.error('❌ Error in create_major_summary tool:', error);
-          context.logCommunication('tool_error_create_major_summary', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            fallback: {
-              summary: '这是一个重要的章节',
-              achievements: [],
-              newMemories: [],
-              type: 'major'
-            }
-          };
-        }
-      },
-      requiredFor: ['summary'],
-      priority: 5
-    });
+    // 这个方法现在为空，因为总结功能已集成到核心工具中
+    // 动态参数修改将在 GameEngine 中处理
   }
 
   private static registerSpecialTools() {
@@ -648,6 +528,94 @@ export class GameToolRegistry {
     }));
   }
 
+  // 动态修改工具参数的方法
+  static getToolsForOpenAIWithTurnCount(sceneTypes?: SceneType[], turnCount?: number, settings?: any): any[] {
+    const tools = this.getTools(sceneTypes);
+    const isMajorSummaryTurn = turnCount && turnCount % 5 === 0;
+    
+    return tools.map(tool => {
+      let modifiedTool = {
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: { 
+            ...tool.parameters,
+            required: [...(tool.parameters.required || [])] // 复制required数组
+          }
+        }
+      };
+
+      // 动态修改 advance_scene 和 show_dialogue 的参数结构
+      if (tool.name === 'advance_scene') {
+        // 根据设置决定是否包含 imagePrompt 参数
+        if (!settings?.enableImageGeneration) {
+          delete modifiedTool.function.parameters.properties.imagePrompt;
+          // 更新 required 数组
+          modifiedTool.function.parameters.required = modifiedTool.function.parameters.required.filter(
+            (param: string) => param !== 'imagePrompt'
+          );
+        }
+        
+        if (isMajorSummaryTurn) {
+          // 第5轮：添加大总结参数到properties
+          modifiedTool.function.description = '推进游戏场景并创建大总结，描述新的环境、情况和发生的事件。必须生成行动选项和大总结。';
+          modifiedTool.function.parameters.properties.achievements = {
+            type: 'array',
+            items: { type: 'string' },
+            description: '玩家取得的成就或进展'
+          };
+          modifiedTool.function.parameters.properties.newMemories = {
+            type: 'array',
+            items: { type: 'string' },
+            description: '需要记住的新信息'
+          };
+          
+          // 添加大总结参数到required数组
+          modifiedTool.function.parameters.required.push('achievements', 'newMemories');
+          
+          // 修改summary描述
+          if (modifiedTool.function.parameters.properties.summary) {
+            modifiedTool.function.parameters.properties.summary.description = '对最近5轮对话的详细总结';
+          }
+        } else {
+          // 普通轮次：保持小总结参数
+          modifiedTool.function.description = '推进游戏场景，描述新的环境、情况和发生的事件。必须生成行动选项和小总结。';
+        }
+      }
+
+      if (tool.name === 'show_dialogue') {
+        if (isMajorSummaryTurn) {
+          // 第5轮：添加大总结参数到properties
+          modifiedTool.function.description = '显示NPC对话内容并创建大总结。必须生成行动选项和大总结。';
+          modifiedTool.function.parameters.properties.achievements = {
+            type: 'array',
+            items: { type: 'string' },
+            description: '玩家取得的成就或进展'
+          };
+          modifiedTool.function.parameters.properties.newMemories = {
+            type: 'array',
+            items: { type: 'string' },
+            description: '需要记住的新信息'
+          };
+          
+          // 添加大总结参数到required数组
+          modifiedTool.function.parameters.required.push('achievements', 'newMemories');
+          
+          // 修改summary描述
+          if (modifiedTool.function.parameters.properties.summary) {
+            modifiedTool.function.parameters.properties.summary.description = '对最近5轮对话的详细总结';
+          }
+        } else {
+          // 普通轮次：保持小总结参数
+          modifiedTool.function.description = '显示NPC对话内容。必须生成行动选项和小总结。';
+        }
+      }
+
+      return modifiedTool;
+    });
+  }
+
   static async executeTool(toolCall: any, context: GameToolContext): Promise<any> {
     try {
       const toolName = toolCall.function?.name;
@@ -695,183 +663,6 @@ export class GameToolRegistry {
       });
       
       throw error;
-    }
-  }
-
-  // 辅助方法：生成上下文相关的行动选项
-  private static async generateContextualActions(context: GameToolContext, sceneType: string): Promise<any> {
-    try {
-      console.log(`⚡ Generating contextual actions for ${sceneType} scene...`);
-      
-      // 基于场景类型和上下文生成行动选项
-      let actions: string[] = [];
-      let actionContext = '';
-      
-      switch (sceneType) {
-        case 'dialogue':
-          actions = [
-            '继续对话',
-            '询问更多信息',
-            '改变话题',
-            '结束对话'
-          ];
-          actionContext = '选择你在对话中的回应';
-          break;
-          
-        case 'exploration':
-        default:
-          actions = [
-            '继续探索当前区域',
-            '仔细观察周围环境',
-            '寻找其他路径',
-            '检查物品和装备'
-          ];
-          actionContext = '选择你在当前区域的行动';
-          break;
-          
-        case 'action':
-          actions = [
-            '执行当前行动',
-            '重新评估情况',
-            '寻找其他解决方案',
-            '暂停并思考'
-          ];
-          actionContext = '选择你的行动方式';
-          break;
-          
-        case 'special_event':
-          actions = [
-            '调查这个事件',
-            '保持警惕',
-            '寻找更多信息',
-            '准备应对'
-          ];
-          actionContext = '选择你如何应对这个特殊情况';
-          break;
-      }
-      
-      // 根据历史记录调整行动选项
-      const recentHistory = context.history.slice(-3);
-      const lastPlayerInput = recentHistory.find(h => h.role === 'user')?.parts?.[0]?.text || '';
-      
-      // 如果玩家提到了特定关键词，调整行动选项
-      const keywords = {
-        '战斗': ['准备战斗', '寻找武器', '制定战术', '撤退'],
-        '魔法': ['施展魔法', '研究法术', '寻找魔法物品', '冥想恢复'],
-        '宝藏': ['寻找宝藏', '检查宝物', '保护财富', '继续寻宝'],
-        '门': ['打开门', '检查门锁', '寻找钥匙', '另寻他路'],
-        'NPC': ['与NPC交谈', '询问信息', '建立关系', '观察行为']
-      };
-      
-      for (const [keyword, customActions] of Object.entries(keywords)) {
-        if (lastPlayerInput.includes(keyword)) {
-          actions = [...customActions.slice(0, 2), ...actions.slice(0, 2)];
-          break;
-        }
-      }
-      
-      return {
-        actions: actions.slice(0, 4), // 限制为4个选项
-        context: actionContext
-      };
-      
-    } catch (error) {
-      console.error('❌ Error generating contextual actions:', error);
-      return {
-        actions: ['继续探索', '仔细观察', '寻找线索', '回顾情况'],
-        context: '选择你的下一步行动'
-      };
-    }
-  }
-
-  // 辅助方法：确定总结类型
-  private static determineSummaryType(context: GameToolContext): 'minor' | 'major' {
-    const historyLength = context.history.length;
-    
-    // 每10个回合创建大总结，每5个回合创建小总结
-    if (historyLength % 10 === 0) {
-      return 'major';
-    } else if (historyLength % 5 === 0) {
-      return 'minor';
-    }
-    
-    return 'minor'; // 默认创建小总结
-  }
-
-  // 辅助方法：生成上下文相关的总结
-  private static async generateContextualSummary(context: GameToolContext, summaryType: 'minor' | 'major'): Promise<any> {
-    try {
-      console.log(`📝 Generating ${summaryType} contextual summary...`);
-      
-      const recentHistory = context.history.slice(-5); // 最近5个回合
-      const keyEvents: string[] = [];
-      const achievements: string[] = [];
-      const newMemories: string[] = [];
-      
-      // 提取关键事件
-      recentHistory.forEach((item, index) => {
-        const description = item.parts?.[0]?.text || '';
-        if (description) {
-          // 寻找关键词来识别重要事件
-          if (description.includes('发现') || description.includes('找到') || description.includes('获得')) {
-            keyEvents.push(`回合${context.history.length - recentHistory.length + index + 1}: ${description.slice(0, 50)}...`);
-          }
-          
-          // 识别成就
-          if (description.includes('成功') || description.includes('完成') || description.includes('解决')) {
-            achievements.push(`成功: ${description.slice(0, 50)}...`);
-          }
-          
-          // 识别新的记忆点
-          if (description.includes('记住') || description.includes('重要') || description.includes('关键')) {
-            newMemories.push(`重要信息: ${description.slice(0, 50)}...`);
-          }
-        }
-      });
-      
-      // 生成总结文本
-      let summary = '';
-      if (summaryType === 'major') {
-        summary = `这是第${context.history.length}个回合的重要总结。`;
-        if (keyEvents.length > 0) {
-          summary += `关键事件包括：${keyEvents.join('；')}。`;
-        }
-        if (achievements.length > 0) {
-          summary += `主要成就：${achievements.join('；')}。`;
-        }
-        if (newMemories.length > 0) {
-          summary += `需要记住的信息：${newMemories.join('；')}。`;
-        }
-        
-        return {
-          summary: summary,
-          achievements: achievements,
-          newMemories: newMemories,
-          type: 'major'
-        };
-      } else {
-        // 小总结
-        summary = `最近探索进展：`;
-        if (keyEvents.length > 0) {
-          summary += `发现了${keyEvents.length}个重要事件。`;
-        }
-        if (achievements.length > 0) {
-          summary += `达成了${achievements.length}个目标。`;
-        }
-        
-        return {
-          summary: summary || '继续探索中...',
-          keyEvents: keyEvents,
-          type: 'minor'
-        };
-      }
-      
-    } catch (error) {
-      console.error('❌ Error generating contextual summary:', error);
-      return {
-        summary: summaryType === 'major' ? '重要进展总结' : '近期探索总结',
-        type: summaryType
-      };
     }
   }
 }

@@ -694,7 +694,7 @@ export async function getNextSceneWithGameEngine(
     logCommunication: (type: string, data: any) => void,
     abortSignal: AbortSignal,
     toolHandler?: ToolHandler
-): Promise<{ scene?: SceneFragment; rawResponse: string; toolCalls?: ToolCall[] }> {
+): Promise<{ scene?: SceneFragment; rawResponse: string; toolCalls?: ToolCall[]; actionData?: any }> {
     
     try {
         console.log('🎮 Using new Game Engine for scene generation...');
@@ -724,7 +724,8 @@ export async function getNextSceneWithGameEngine(
                 id: tc.id || `tool-${Date.now()}`,
                 type: 'function' as const,
                 function: tc.function
-            })) || []
+            })) || [],
+            actionData: result.actionData // 添加actionData
         };
         
     } catch (error) {
@@ -1007,53 +1008,6 @@ export async function getNextScene(
   }
 }
 
-export async function generateGrandSummary(
-    history: HistoryItem[],
-    settings: GameSettings,
-    logCommunication: (type: string, data: any) => void
-): Promise<string> {
-    const prompt = settings.language === 'zh' 
-        ? "根据以上对话历史，生成一个简洁的、概括性的章节摘要，总结到目前为止发生的故事。不要描述场景或提供玩家行动选项。"
-        : "Based on the conversation history so far, generate a concise, high-level chapter summary of what has happened. Do not describe a scene or offer player actions.";
-
-    const summaryHistory = [...history, { role: 'user' as const, parts: [{ text: prompt }] }];
-    const { geminiSystemInstruction, openAIMessages } = buildPromptParts(summaryHistory, settings);
-    
-    if (settings.provider === 'custom') {
-        if (!settings.customEndpoint) throw new Error("Custom endpoint URL is not configured in settings.");
-        const url = settings.customEndpoint.replace(/\/+$/, '') + '/chat/completions';
-        const requestPayload = {
-            model: settings.customModelId || 'gpt-4-turbo', messages: openAIMessages, 
-            temperature: Number(settings.llm.temperature),
-            top_p: Number(settings.llm.topP), 
-            frequency_penalty: Number(settings.llm.frequencyPenalty), 
-            presence_penalty: Number(settings.llm.presencePenalty),
-        };
-        logCommunication('custom_request_generateGrandSummary', requestPayload);
-        try {
-            const response = await fetch(url, {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.customApiKey}`},
-                body: JSON.stringify(requestPayload)
-            });
-            if (!response.ok) throw new Error('Custom provider API error for summary');
-            const data = await response.json();
-            logCommunication('custom_response_generateGrandSummary', data);
-            if (!data.choices || data.choices.length === 0) throw new Error("Custom provider returned an invalid summary response (empty choices array).");
-            return data.choices[0].message.content || "Summary could not be generated.";
-        } catch (e) { logCommunication('custom_error_generateGrandSummary', e); throw e; }
-    } else {
-        const requestPayload = {
-            model: 'gemini-2.5-flash', contents: summaryHistory,
-            config: { systemInstruction: geminiSystemInstruction, temperature: settings.llm.temperature, topP: settings.llm.topP, topK: settings.llm.topK }
-        };
-        logCommunication('gemini_request_generateGrandSummary', requestPayload);
-        try {
-            const response = await ai.models.generateContent(requestPayload);
-            logCommunication('gemini_response_generateGrandSummary', response);
-            return response.text;
-        } catch(e) { logCommunication('gemini_error_generateGrandSummary', e); throw e; }
-    }
-}
 
 export async function evaluateAndGenerateMilestone(
     history: HistoryItem[],

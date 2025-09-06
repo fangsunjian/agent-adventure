@@ -1,18 +1,18 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GameStatus } from '../types';
-import type { Scene, HistoryItem, GameSettings, DebugLogEntry, SceneFragment, Memories, MilestoneSummaryItem, Story, Playthrough, DetectedPlaceholder } from '../types';
-import { getNextScene, getNextSceneWithTools, getNextSceneWithGameEngine, generateImage, generateGrandSummary, evaluateAndGenerateMilestone, type ToolHandler } from '../services/aiService';
-import { translations, simpleUUID } from '../constants';
-import SceneDisplay from '../components/SceneDisplay';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ActionsPanel from '../components/ActionsPanel';
-import SummaryPanel from '../components/SummaryPanel';
-import GameSettingsPanel from '../components/LLMSettingsPanel';
-import Resizer from '../components/Resizer';
-import DebugPanel from '../components/DebugPanel';
-import { BookIcon, BugIcon, CloseIcon, SlidersIcon, RegenerateIcon as RestartIcon, ArrowLeftIcon } from '../components/icons';
 import ConfirmationDialog from '../components/ConfirmationDialog';
-import PlaceholderInputModal from '../components/PlaceholderInputModal';
+import DebugPanel from '../components/DebugPanel';
 import DialogueModal from '../components/DialogueModal';
+import { ArrowLeftIcon, BookIcon, BugIcon, CloseIcon, RegenerateIcon as RestartIcon, SlidersIcon } from '../components/icons';
+import GameSettingsPanel from '../components/LLMSettingsPanel';
+import PlaceholderInputModal from '../components/PlaceholderInputModal';
+import Resizer from '../components/Resizer';
+import SceneDisplay from '../components/SceneDisplay';
+import SummaryPanel from '../components/SummaryPanel';
+import { simpleUUID, translations } from '../constants';
+import { evaluateAndGenerateMilestone, generateImage, getNextSceneWithGameEngine, getNextSceneWithTools, type ToolHandler } from '../services/aiService';
+import type { DebugLogEntry, DetectedPlaceholder, GameSettings, HistoryItem, Memories, Playthrough, Scene, SceneFragment, Story } from '../types';
+import { GameStatus } from '../types';
 
 const showDebug = (window as any).DEBUG_MODE === true;
 
@@ -308,7 +308,28 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
         // If no scene but tools were called, this might be a dialogue-only interaction
         if (result.toolCalls && result.toolCalls.length > 0) {
           console.log('🎭 Tools executed without scene generation (dialogue-only interaction)');
-          setGameState(s => ({...s, gameStatus: GameStatus.Playing}));
+          
+          // Update actions from GameEngine result if available
+          let actionsToUpdate = null;
+          
+          if (result.actionData?.actions) {
+            actionsToUpdate = result.actionData.actions;
+            console.log('actionData from GameEngine:', result.actionData);
+            // Store actions for dialogue completion
+            dialogueActionsRef.current = actionsToUpdate;
+          }
+          
+          setGameState(s => ({
+            ...s, 
+            gameStatus: GameStatus.Playing,
+            ...(actionsToUpdate && {
+              history: s.history.map((item, index) => 
+                index === s.history.length - 1 && item.role === 'model' 
+                  ? { ...item, actions: actionsToUpdate }
+                  : item
+              )
+            })
+          }));
           return;
         }
         throw new Error("No scene or tool calls returned from AI");
@@ -332,12 +353,6 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       const updatedHistoryWithModel = [...fullHistory, historyItemInProgress];
       const modelResponseCount = updatedHistoryWithModel.filter(h => h.role === 'model' && !h.isError).length;
       
-      if (modelResponseCount > 0 && modelResponseCount % 5 === 0) {
-        generateGrandSummary(updatedHistoryWithModel, settingsToUse, logCommunication)
-          .then(summaryText => {
-            setGameState(s => ({ ...s, grandSummaries: [...s.grandSummaries, { turn: modelResponseCount, text: summaryText }] }));
-          }).catch(e => console.error("Failed to generate grand summary:", e));
-      }
 
       // Only use legacy milestone evaluation if NOT using Game Engine
       // The Game Engine handles milestone evaluation through the evaluate_milestone tool
@@ -487,6 +502,13 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const handleDialogueComplete = useCallback(() => {
     if (!gameState.dialogue) return;
     
+    // Use actions from tool results if available, otherwise use default actions
+    const actionsToUse = dialogueActionsRef.current || [
+      '继续探索',
+      '询问更多信息', 
+      '告别并离开'
+    ];
+
     // Add dialogue to history and clear dialogue state
     const dialogueContent = `**${gameState.dialogue.speaker}**: ${gameState.dialogue.messages.join('\\n\\n')}`;
     const dialogueHistoryItem: HistoryItem = {
@@ -494,11 +516,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       parts: [{ text: JSON.stringify({ 
         description: dialogueContent, 
         imagePrompt: '', 
-        actions: [
-          '继续探索',
-          '询问更多信息', 
-          '告别并离开'
-        ], 
+        actions: actionsToUse, 
         summary: `对话与${gameState.dialogue.speaker}` 
       }) }],
       imageUrl: null,
@@ -512,8 +530,14 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       dialogue: null,
     }));
     
+    // Clear the stored actions after use
+    dialogueActionsRef.current = null;
+    
     // No automatic continuation - let player choose what to do next
   }, [gameState.dialogue]);;
+
+  // Store dialogue actions from tool results
+  const dialogueActionsRef = useRef<string[] | null>(null);
 
   // Tool handler for AI function calls
   const toolHandler: ToolHandler = {

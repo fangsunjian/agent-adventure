@@ -2,6 +2,7 @@ import { jsonrepair } from 'jsonrepair';
 import type { HistoryItem, GameSettings, Memories, Story, SceneFragment } from '../types';
 import { GameToolRegistry, type GameToolContext, type SceneType } from './GameToolRegistry';
 import { SceneAnalyzer } from './SceneAnalyzer';
+import { PROMPTS } from '../prompts/index';
 
 // 重新导出用于测试
 export { GameToolRegistry } from './GameToolRegistry';
@@ -11,6 +12,7 @@ export interface GameEngineResult {
   scene?: SceneFragment;
   rawResponse: string;
   toolCalls?: any[];
+  actionData?: any; // 添加actionData字段用于传递行动选项
   engineData?: {
     sceneAnalysis: any;
     toolsUsed: string[];
@@ -55,13 +57,17 @@ export class GameEngine {
       // 确保初始化
       this.initialize();
       
+      // 计算当前轮次（基于历史记录长度）
+      const turnCount = Math.floor(history.length / 2) + 1; // 每轮包括用户输入和AI响应
+      console.log(`🔄 Processing turn ${turnCount}`);
+      
       // 分析场景上下文
       const sceneAnalysis = SceneAnalyzer.analyze(history, memories, activeStory);
       console.log('📊 Scene analysis:', sceneAnalysis);
       logCommunication('scene_analysis', sceneAnalysis);
       
-      // 选择合适的工具集
-      const toolsToUse = this.selectTools(sceneAnalysis);
+      // 选择合适的工具集（传递轮次信息）
+      const toolsToUse = this.selectTools(sceneAnalysis, turnCount);
       console.log('🔧 Selected tools:', toolsToUse);
       
       // 构建游戏上下文
@@ -73,7 +79,7 @@ export class GameEngine {
         logCommunication
       };
       
-      // 调用AI进行游戏推进
+      // 调用AI进行游戏推进（传递turnCount）
       const aiResult = await this.callAIWithTools(
         history,
         settings,
@@ -81,7 +87,8 @@ export class GameEngine {
         toolsToUse,
         gameContext,
         logCommunication,
-        abortSignal
+        abortSignal,
+        turnCount
       );
       
       // 处理工具调用结果
@@ -98,7 +105,8 @@ export class GameEngine {
         engineData: {
           sceneAnalysis,
           toolsUsed: aiResult.toolCalls?.map(tc => tc.function?.name).filter(Boolean) || [],
-          executionTime
+          executionTime,
+          turnCount
         }
       };
       
@@ -112,23 +120,42 @@ export class GameEngine {
     }
   }
 
-  private static selectTools(sceneAnalysis: any): string[] {
-    // 简化工具选择 - 现在 advance_scene 和 show_dialogue 自动包含 generate_actions
-    let selectedTools = ['advance_scene']; // 基础工具，advance_scene 已包含 generate_actions
+  private static selectTools(sceneAnalysis: any, turnCount?: number): string[] {
+    // 简化工具选择 - 只使用两个核心工具，参数会动态修改
+    let selectedTools = ['advance_scene']; // 基础工具
+    
+    console.log(`🔄 Turn ${turnCount || 'unknown'}: Using dynamic parameter tools`);
     
     if (SceneAnalyzer.shouldUseDynamicTools(sceneAnalysis)) {
-      selectedTools = sceneAnalysis.suggestedTools || selectedTools;
-      // 移除独立的 generate_actions，因为它现在集成在 advance_scene 中
-      selectedTools = selectedTools.filter(tool => tool !== 'generate_actions');
+      const suggestedTools = sceneAnalysis.suggestedTools || [];
+      
+      // 使用建议的工具，但只保留核心工具
+      selectedTools = [];
+      if (suggestedTools.includes('show_dialogue')) {
+        selectedTools.push('show_dialogue');
+      }
+      if (suggestedTools.includes('advance_scene')) {
+        selectedTools.push('advance_scene');
+      }
+      
+      // 添加其他建议的工具（排除已处理的和不再需要的）
+      const otherTools = suggestedTools.filter(tool => 
+        !['show_dialogue', 'advance_scene', 'generate_actions', 'create_minor_summary', 'create_major_summary'].includes(tool)
+      );
+      selectedTools.push(...otherTools);
     } else {
-      console.log('🎯 Using conservative tool set with integrated generate_actions');
+      console.log('🎯 Using conservative tool set');
     }
     
-    // 确保核心工具可用
+    // 确保至少有一个核心工具
+    if (selectedTools.length === 0) {
+      selectedTools = ['advance_scene'];
+    }
+    
+    // 确保包含两个核心工具
     if (!selectedTools.includes('advance_scene')) {
-      selectedTools.unshift('advance_scene');
+      selectedTools.push('advance_scene');
     }
-    
     if (!selectedTools.includes('show_dialogue')) {
       selectedTools.push('show_dialogue');
     }
@@ -172,7 +199,8 @@ export class GameEngine {
     toolsToUse: string[],
     gameContext: GameToolContext,
     logCommunication: (type: string, data: any) => void,
-    abortSignal: AbortSignal
+    abortSignal: AbortSignal,
+    turnCount?: number
   ): Promise<{ toolCalls?: any[]; content?: string; rawResponse: string }> {
     
     if (settings.provider !== 'custom' || !settings.customEndpoint) {
@@ -182,10 +210,16 @@ export class GameEngine {
     // 构建提示词和历史
     const { openAIMessages } = this.buildPromptParts(history, memories, settings);
     
-    // 获取工具定义 - 只获取选中的工具
+    // 获取动态修改后的工具定义（传递settings参数）
     console.log('🔧 Using tools:', toolsToUse);
+    console.log(`🔄 Turn count: ${turnCount}, Major summary turn: ${turnCount && turnCount % 5 === 0}`);
+    console.log(`🖼️ Image generation enabled: ${settings.enableImageGeneration}`);
     const sceneTypes = this.getSceneTypesFromTools(toolsToUse);
-    const tools = GameToolRegistry.getToolsForOpenAI(sceneTypes.length > 0 ? sceneTypes : undefined);
+    const tools = GameToolRegistry.getToolsForOpenAIWithTurnCount(
+      sceneTypes.length > 0 ? sceneTypes : undefined, 
+      turnCount, 
+      settings
+    );
     
     // 构建请求
     const requestPayload = {
@@ -263,6 +297,7 @@ export class GameEngine {
     let actionData: any = null;
     let summaryData: any = null;
     let systemMessage: any = null;
+    let isDialogueOnly = false; // 新增：标记是否只是对话
     const processedToolCalls: any[] = [];
     
     // 按顺序执行工具调用
@@ -284,6 +319,7 @@ export class GameEngine {
           
           // 处理对话工具的特殊情况
           if (toolCall.function?.name === 'show_dialogue' && result.dialogueData && toolHandler?.show_dialogue) {
+            isDialogueOnly = true; // 标记为对话模式
             await toolHandler.show_dialogue(result.dialogueData);
           }
         } else {
@@ -321,13 +357,25 @@ export class GameEngine {
       };
     }
     
+    // 对于纯对话场景，不需要生成场景描述，但要传递actionData
+    if (isDialogueOnly && !sceneData) {
+      // 对话场景不需要额外的场景描述，返回空场景但包含actionData
+      return {
+        scene: null, // 表示这是纯对话，不需要场景显示
+        rawResponse: aiResult.rawResponse,
+        toolCalls: processedToolCalls,
+        actionData: actionData // 重要：传递actionData给GamePage
+      };
+    }
+    
     // 构建最终场景 - 确保每次都使用新生成的actions，不会保留旧的
     const finalScene = this.buildFinalScene(sceneData, actionData, summaryData);
     
     return {
       scene: finalScene,
       rawResponse: aiResult.rawResponse,
-      toolCalls: processedToolCalls
+      toolCalls: processedToolCalls,
+      actionData: actionData // 也为常规场景传递actionData
     };
   }
 
@@ -421,56 +469,81 @@ export class GameEngine {
   // 构建最终的提示词格式
   // 构建最终的提示词格式
   private static buildPromptPartsFromContextual(contextualHistory: any[], settings: GameSettings) {
-    const baseInstruction = `你是一位专业的游戏大师。你必须使用提供的工具来推进游戏场景。
-
-🔧 工具使用规则（简化版 - 更稳定可靠）：
-- 你必须调用工具来回应玩家，不能直接返回文本
-- advance_scene工具已自动包含行动选项生成，无需单独调用generate_actions
-- show_dialogue工具已自动包含行动选项生成，无需单独调用generate_actions
-- 推荐：advance_scene（用于探索场景，自动包含行动选项）
-- 推荐：show_dialogue（用于对话场景，自动包含行动选项）
-- 现在只需要调用一个工具即可，系统会自动处理行动选项
-
-🎯 工具调用要求：
-1. 对于场景描述，只需调用：advance_scene
-2. 对于对话描述，只需调用：show_dialogue
-3. 系统会自动生成相应的玩家行动选项
-
-🔧 工具说明：
-- advance_scene工具：描述新的环境、情况和事件发展（已集成行动选项生成）
-- show_dialogue工具：展示NPC的对话内容（已集成行动选项生成）
-- 系统会自动根据场景类型生成合适的行动选项
-
-📝 内容要求：
-- 工具参数中使用简洁明确的文本
-- 避免复杂的嵌套JSON结构
-- 保持游戏氛围和连贯性
-- 根据玩家行动推进剧情
-- 行动选项要具体、有趣且符合场景
-
-⚠️ 重要提醒：
-- 只需调用一个工具（advance_scene 或 show_dialogue）
-- 系统会自动生成玩家行动选项
-- 每次回应都会给玩家提供新的行动选择
-
-当前语言: ${settings.language === 'zh' ? '中文' : 'English'}
-
-系统已自动集成行动选项生成，无需额外调用！`;
+    // 从prompts系统获取指令
+    const language = settings.language === 'zh' ? 'zh' : 'en';
+    const baseInstruction = PROMPTS[language].baseSystemInstruction;
 
     const openAIMessages = [
       { role: 'system', content: baseInstruction }
     ];
     
-    // 转换历史记录为 OpenAI 格式
-    contextualHistory.forEach(item => {
+    // 转换历史记录为 OpenAI 格式，并清理AI响应内容
+    contextualHistory.forEach((item, index) => {
       if (item.role && item.parts && item.parts[0] && item.parts[0].text.trim()) {
-        openAIMessages.push({
-          role: item.role === 'model' ? 'assistant' : 'user',
-          content: item.parts[0].text.trim()
-        });
+        const isRecentMessage = index >= contextualHistory.length - 5; // 最近5条消息
+        
+        if (item.role === 'model') {
+          // 处理AI回复消息，需要清理内容
+          let cleanedContent = this.cleanAIResponseContent(item.parts[0].text, isRecentMessage);
+          
+          openAIMessages.push({
+            role: 'assistant',
+            content: cleanedContent
+          });
+        } else {
+          // 用户消息直接使用
+          openAIMessages.push({
+            role: 'user',
+            content: item.parts[0].text.trim()
+          });
+        }
       }
     });
     
     return { openAIMessages };
+  }
+
+  // 清理AI响应内容的辅助方法
+  private static cleanAIResponseContent(rawContent: string, isRecentMessage: boolean): string {
+    try {
+      // 尝试解析JSON内容
+      const parsed = JSON.parse(rawContent);
+      
+      if (isRecentMessage) {
+        // 最近5条消息：使用description内容
+        if (parsed.description) {
+          return parsed.description;
+        }
+      } else {
+        // 较老的消息：使用summary内容，并标注为summary
+        if (parsed.summary) {
+          return `[Summary] ${parsed.summary}`;
+        } else if (parsed.description) {
+          // 如果没有summary，从description生成简短摘要
+          const shortSummary = parsed.description.length > 100 
+            ? parsed.description.substring(0, 100) + '...'
+            : parsed.description;
+          return `[Summary] ${shortSummary}`;
+        }
+      }
+      
+      // 如果解析失败，返回原始内容的简化版本
+      return rawContent.length > 200 ? rawContent.substring(0, 200) + '...' : rawContent;
+      
+    } catch (error) {
+      // JSON解析失败，直接处理原始文本
+      console.log('Failed to parse AI response as JSON, using raw content:', error);
+      
+      if (isRecentMessage) {
+        // 最近消息：返回原内容（可能是纯文本回复）
+        return rawContent;
+      } else {
+        // 较老消息：截断并标注为summary
+        const shortContent = rawContent.length > 100 
+          ? rawContent.substring(0, 100) + '...'
+          : rawContent;
+        return `[Summary] ${shortContent}`;
+      }
+    }
   }
 }

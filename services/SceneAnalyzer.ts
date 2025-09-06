@@ -95,34 +95,43 @@ export class SceneAnalyzer {
     for (let i = Math.max(0, history.length - 10); i < history.length; i++) {
       const item = history[i];
       
-      // 收集最近的行动
-      if (item.playerInput && lastActions.length < 5) {
-        lastActions.push(item.playerInput);
+      // 收集最近的用户行动
+      if (item.role === 'user' && lastActions.length < 5) {
+        lastActions.push(item.parts[0]?.text || '');
       }
       
-      // 收集最近的对话角色
-      if (item.response?.dialogues) {
-        item.response.dialogues.forEach(dialogue => {
-          if (dialogue.speaker && !recentSpeakers.includes(dialogue.speaker) && recentSpeakers.length < 3) {
-            recentSpeakers.push(dialogue.speaker);
+      // 收集最近的对话角色和检查总结
+      if (item.role === 'model' && !item.isError) {
+        try {
+          const content = JSON.parse(item.parts[0]?.text || '{}');
+          
+          // 检查是否有对话角色
+          if (content.speaker && !recentSpeakers.includes(content.speaker) && recentSpeakers.length < 3) {
+            recentSpeakers.push(content.speaker);
           }
-        });
-      }
-      
-      // 查找最后一次总结
-      if (item.response?.summary && item.response.summary.trim().length > 0) {
-        lastSummaryIndex = i;
+          
+          // 检查是否有总结（任何形式的总结都算）
+          if (content.summary && content.summary.trim().length > 0) {
+            lastSummaryIndex = i;
+          }
+          
+        } catch (e) {
+          // JSON 解析失败，跳过
+        }
       }
     }
     
-    const turnsSinceLastSummary = lastSummaryIndex >= 0 ? history.length - lastSummaryIndex - 1 : history.length;
-    const needsSummary = turnsSinceLastSummary > 5;
+    // 计算距离上次总结的轮次
+    // 这里改用更简单的计算方式：每5个模型回应就需要一次大总结
+    const modelResponses = history.filter(h => h.role === 'model' && !h.isError).length;
+    const turnsSinceLastSummary = modelResponses % 5 === 0 ? 5 : modelResponses % 5;
+    const needsSummary = modelResponses > 0 && modelResponses % 5 === 0;
     
     return {
       lastActions,
       recentSpeakers,
       needsSummary,
-      turnsSinceLastSummary
+      turnsSinceLastSummary: turnsSinceLastSummary || modelResponses
     };
   }
 
@@ -215,26 +224,24 @@ export class SceneAnalyzer {
     
     switch (sceneType) {
       case 'exploration':
-        return [...baseTools, 'generate_actions'];
+        return [...baseTools, 'show_dialogue'];
         
       case 'dialogue':
-        return [...baseTools, 'show_dialogue', 'generate_actions'];
+        return [...baseTools, 'show_dialogue'];
         
       case 'action':
-        return [...baseTools, 'generate_actions'];
+        return [...baseTools, 'show_dialogue'];
         
       case 'summary':
-        if (context.turnsSinceLastSummary > 10) {
-          return ['create_major_summary', 'update_memory'];
-        } else {
-          return ['create_minor_summary'];
-        }
+        // 总结功能已集成到核心工具中，通过轮次判断动态添加参数
+        // 不再需要独立的总结工具
+        return [...baseTools, 'show_dialogue'];
         
       case 'special_event':
-        return [...baseTools, 'show_system_message', 'generate_actions', 'update_memory'];
+        return [...baseTools, 'show_dialogue', 'show_system_message'];
         
       default:
-        return [...baseTools, 'generate_actions'];
+        return [...baseTools, 'show_dialogue'];
     }
   }
 
@@ -263,13 +270,9 @@ export class SceneAnalyzer {
       'show_dialogue': 1,
       
       // 中优先级 - 交互功能  
-      'generate_actions': 2,
       'show_system_message': 2,
       
-      // 低优先级 - 辅助功能
-      'create_minor_summary': 3,
-      'create_major_summary': 3,
-      'update_memory': 4
+      // 其他工具默认优先级
     };
     
     return tools.sort((a, b) => {
