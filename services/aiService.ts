@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import type { SceneFragment, HistoryItem, GameSettings, SystemInstruction, CustomModel, Memories, MilestoneSummaryItem, GrandSummaryItem, Story } from '../types';
 import { jsonrepair } from 'jsonrepair';
 import { PROMPTS } from '../prompts';
+import type { CustomModel, GameSettings, HistoryItem, Memories, MilestoneSummaryItem, SceneFragment, Story } from '../types';
 import { DynamicPromptLoader } from '../utils/dynamicPromptLoader';
 import { GameEngine } from './GameEngine';
 
@@ -109,7 +109,30 @@ export interface ToolCall {
 }
 
 export interface ToolHandler {
-    show_dialogue: (args: { speaker: string; messages: string[]; avatar?: string }) => Promise<any>;
+  show_dialogue: (args: { speaker: string; messages: string[]; avatar?: string }) => Promise<any>;
+}
+
+// Enhanced return type for GameEngine results
+export interface GameEngineResult {
+  scene?: SceneFragment;
+  rawResponse: string;
+  toolCalls?: ToolCall[];
+  actionData?: {
+    actions: string[];
+    context?: string;
+    timestamp: number;
+  };
+  playerLocationData?: {
+    mapId: string;
+    locationId: string;
+    mapName: string;
+    locationName: string;
+    reason: string;
+    timestamp: number;
+  };
+  mapData?: any;
+  error?: boolean;
+  errorMessage?: string;
 }
 
 // Enhanced function that supports tool calls
@@ -222,7 +245,7 @@ export async function getNextSceneWithTools(
                                 
                                 // Fix messages format if it's not an array of strings
                                 if (args.messages && Array.isArray(args.messages)) {
-                                    args.messages = args.messages.map(msg => {
+                                    args.messages = args.messages.map((msg: any) => {
                                         if (typeof msg === 'string') {
                                             return msg;
                                         } else if (typeof msg === 'object' && msg.content) {
@@ -251,7 +274,7 @@ export async function getNextSceneWithTools(
                                 if (speakerMatch) {
                                     args = {
                                         speaker: speakerMatch[1],
-                                        messages: []
+                                        messages: [] as string[]
                                     };
                                     
                                     if (messagesMatch) {
@@ -259,7 +282,7 @@ export async function getNextSceneWithTools(
                                         const messagesStr = messagesMatch[1];
                                         const messageMatches = messagesStr.match(/"([^"]+)"/g);
                                         if (messageMatches) {
-                                            args.messages = messageMatches.map(m => m.slice(1, -1)); // Remove quotes
+                                            args.messages = messageMatches.map((m: string) => m.slice(1, -1)); // Remove quotes
                                         }
                                     }
                                     
@@ -335,8 +358,8 @@ export async function getNextSceneWithTools(
                                     } catch {
                                         // Fallback: manual parsing
                                         actions = actionsStr.split(',')
-                                            .map(action => action.trim().replace(/^"|"$/g, ''))
-                                            .filter(action => action.length > 0);
+                                            .map((action: string) => action.trim().replace(/^"|"$/g, ''))
+                                            .filter((action: string) => action.length > 0);
                                     }
                                 }
                                 
@@ -399,7 +422,7 @@ export async function getNextSceneWithTools(
                                         // Extract individual messages
                                         const messageMatches = messagesStr.match(/"[^"]*(?:\\.[^"]*)*"/g);
                                         if (messageMatches) {
-                                            dataObject.messages = messageMatches.map(m => {
+                                            dataObject.messages = messageMatches.map((m: string) => {
                                                 // Remove outer quotes and unescape inner quotes
                                                 return m.slice(1, -1).replace(/\\"/g, '"');
                                             });
@@ -483,7 +506,7 @@ export async function getNextSceneWithTools(
                                         const messagesStr = messagesMatch[1];
                                         const messageMatches = messagesStr.match(/"[^"]*(?:\\.[^"]*)*"/g);
                                         if (messageMatches) {
-                                            messages = messageMatches.map(m => m.slice(1, -1).replace(/\\"/g, '"'));
+                                            messages = messageMatches.map((m: string) => m.slice(1, -1).replace(/\\"/g, '"'));
                                         }
                                     }
                                     
@@ -694,7 +717,7 @@ export async function getNextSceneWithGameEngine(
     logCommunication: (type: string, data: any) => void,
     abortSignal: AbortSignal,
     toolHandler?: ToolHandler
-): Promise<{ scene?: SceneFragment; rawResponse: string; toolCalls?: ToolCall[]; actionData?: any }> {
+): Promise<GameEngineResult> {
     
     try {
         console.log('🎮 Using new Game Engine for scene generation...');
@@ -708,7 +731,7 @@ export async function getNextSceneWithGameEngine(
             activeStory,
             logCommunication,
             abortSignal,
-            toolHandler
+            toolHandler as any // Temporary type assertion to resolve interface mismatch
         );
         
         console.log('✅ Game Engine processing completed:', {
@@ -725,12 +748,14 @@ export async function getNextSceneWithGameEngine(
                 type: 'function' as const,
                 function: tc.function
             })) || [],
-            actionData: result.actionData // 添加actionData
+            actionData: result.actionData, // 传递actionData给上层
+            playerLocationData: result.playerLocationData,
+            mapData: result.mapData
         };
         
-    } catch (error) {
+    } catch (error: any) {
         console.error('❌ Game Engine failed, falling back to legacy system:', error);
-        logCommunication('game_engine_fallback', { 
+        logCommunication('game_engine_fallback', {
             error: error.message,
             fallbackTo: 'getNextSceneWithTools'
         });
@@ -1091,7 +1116,7 @@ If a milestone is found, respond with the JSON object. If not, respond with a JS
 
             const response = await ai.models.generateContent(requestPayload);
             logCommunication('gemini_response_evaluateMilestone', response);
-            text = response.text;
+            text = response.text || '';
         }
 
         const parsed = JSON.parse(text);
@@ -1129,7 +1154,7 @@ export async function generateImage(
         const response = await ai.models.generateImages(requestPayload);
         logCommunication('gemini_response_generateImage', { generatedImagesCount: response.generatedImages?.length ?? 0 });
         if (response.generatedImages && response.generatedImages.length > 0) {
-            const base64ImageBytes = response.generatedImages[0].image.imageBytes;
+            const base64ImageBytes = response.generatedImages?.[0]?.image?.imageBytes || '';
             return `data:image/jpeg;base64,${base64ImageBytes}`;
         } else {
             throw new Error("No images were generated.");

@@ -3,8 +3,9 @@ import ActionsPanel from '../components/ActionsPanel';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import DebugPanel from '../components/DebugPanel';
 import DialogueModal from '../components/DialogueModal';
-import { ArrowLeftIcon, BookIcon, BugIcon, CloseIcon, RegenerateIcon as RestartIcon, SlidersIcon } from '../components/icons';
+import { ArrowLeftIcon, BookIcon, BugIcon, CloseIcon, MapIcon, RegenerateIcon as RestartIcon, SlidersIcon } from '../components/icons';
 import GameSettingsPanel from '../components/LLMSettingsPanel';
+import MapViewerModal from '../components/MapViewerModal';
 import PlaceholderInputModal from '../components/PlaceholderInputModal';
 import Resizer from '../components/Resizer';
 import SceneDisplay from '../components/SceneDisplay';
@@ -59,6 +60,8 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const [isGameSettingsOpen, setIsGameSettingsOpen] = useState(false);
   const [isNewGameConfirmOpen, setIsNewGameConfirmOpen] = useState(false);
   const [isPlaceholderModalOpen, setIsPlaceholderModalOpen] = useState(false);
+  const [isMapViewerOpen, setIsMapViewerOpen] = useState(false);
+  const [currentMapIndex, setCurrentMapIndex] = useState(0);
   const [detectedPlaceholders, setDetectedPlaceholders] = useState<DetectedPlaceholder[]>([]);
   const [lastPlaceholderValues, setLastPlaceholderValues] = useState<Record<string, string>>(() => {
     // Initialize with values from playthrough if available
@@ -124,6 +127,10 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const currentModelResponse = gameState.history.length > 0 && gameState.history[gameState.history.length - 1].role === 'model' && !gameState.history[gameState.history.length-1].isError
     ? JSON.parse(gameState.history[gameState.history.length - 1].parts[0].text) as Scene
     : null;
+
+  // Detect maps in the story
+  const storyMaps = processedStory?.library.filter(card => card.type === 'map' && card.mapImageUrl) || [];
+  const hasMapButton = storyMaps.length > 0;
 
   const logCommunication = useCallback((type: string, data: any) => {
     setCommunicationsLog(prev => [...prev, { type, data, timestamp: new Date().toISOString() }]);
@@ -298,6 +305,43 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       if (useGameEngine) {
         console.log('🎮 Using new Game Engine...');
         result = await getNextSceneWithGameEngine(historyForAPI, settingsToUse, memories, activeStory, logCommunication, controller.signal, toolHandler);
+        
+        // Debug player location
+        if (result.playerLocationData) {
+          console.log('🎯 Updating gameState with playerLocationData:', result.playerLocationData);
+        }
+        
+        // Handle dialogue-only interaction to avoid empty bubble
+        if (result.toolCalls?.some(tc => tc.function?.name === 'show_dialogue')) {
+          // Set actions for dialogue completion
+          if (result.actionData?.actions) {
+            dialogueActionsRef.current = result.actionData.actions;
+            console.log('🎯 Set dialogueActionsRef from GameEngine for dialogue:', result.actionData.actions);
+          }
+          
+          // Update player location if available, but don't add empty scene to history
+          const playerLocationToUpdate = result.playerLocationData ? {
+            mapId: result.playerLocationData.mapId,
+            locationId: result.playerLocationData.locationId
+          } : null;
+          
+          setGameState(s => ({
+            ...s,
+            gameStatus: GameStatus.Playing,
+            ...(playerLocationToUpdate && {
+              playerLocation: playerLocationToUpdate
+            })
+          }));
+          
+          console.log('🎭 Dialogue interaction handled without adding empty scene to history');
+          return; // Exit early to prevent adding minimal scene
+        }
+        
+        // Fix for dialogue actions not being set when scene exists (minimalScene for dialogue)
+        if (result.actionData?.actions && result.toolCalls?.some(tc => tc.function?.name === 'show_dialogue')) {
+          dialogueActionsRef.current = result.actionData.actions;
+          console.log('🎯 Set dialogueActionsRef from GameEngine actionData:', result.actionData.actions);
+        }
       } else {
         console.log('🔄 Using legacy system...');
         result = await getNextSceneWithTools(historyForAPI, settingsToUse, memories, logCommunication, controller.signal, toolHandler);
@@ -311,35 +355,70 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
           
           // Update actions from GameEngine result if available
           let actionsToUpdate = null;
+          let playerLocationToUpdate = null;
           
           if (result.actionData?.actions) {
             actionsToUpdate = result.actionData.actions;
-            console.log('actionData from GameEngine:', result.actionData);
+            console.log('🎯 actionData from GameEngine:', result.actionData);
             // Store actions for dialogue completion
             dialogueActionsRef.current = actionsToUpdate;
           }
+
+          if (result.playerLocationData) {
+            playerLocationToUpdate = {
+              mapId: result.playerLocationData.mapId,
+              locationId: result.playerLocationData.locationId
+            };
+            console.log('playerLocationData from GameEngine:', result.playerLocationData);
+          }
           
-          setGameState(s => ({
-            ...s, 
-            gameStatus: GameStatus.Playing,
-            ...(actionsToUpdate && {
-              history: s.history.map((item, index) => 
-                index === s.history.length - 1 && item.role === 'model' 
-                  ? { ...item, actions: actionsToUpdate }
-                  : item
-              )
-            })
-          }));
+          // Create a temporary scene with the new actions for UI display
+          if (actionsToUpdate) {
+            const tempScene: SceneFragment = {
+              description: '', // Empty since dialogue is showing
+              imagePrompt: '',
+              actions: actionsToUpdate,
+              summary: '对话交互中'
+            };
+            
+            const tempHistoryItem: HistoryItem = {
+              role: 'model',
+              parts: [{ text: JSON.stringify(tempScene) }],
+              imageUrl: null,
+              isGeneratingImage: false,
+            };
+            
+            console.log('🎯 Creating temp scene with actions:', actionsToUpdate);
+            
+            setGameState(s => ({
+              ...s,
+              gameStatus: GameStatus.Playing,
+              // Add the temp history item to show new actions
+              history: [...s.history, tempHistoryItem],
+              ...(playerLocationToUpdate && {
+                playerLocation: playerLocationToUpdate
+              })
+            }));
+          } else {
+            setGameState(s => ({
+              ...s,
+              gameStatus: GameStatus.Playing,
+              ...(playerLocationToUpdate && {
+                playerLocation: playerLocationToUpdate
+              })
+            }));
+          }
           return;
         }
         throw new Error("No scene or tool calls returned from AI");
       }
       
-      const { scene, rawResponse } = result;
+      const { scene, rawResponse, playerLocationData } = result;
 
       const historyItemInProgress: HistoryItem = {
         role: 'model' as const, parts: [{ text: JSON.stringify(scene) }], imageUrl: null,
         isGeneratingImage: settingsToUse.enableImageGeneration,
+        mapData: result.mapData, // 包含地图数据供AI后续使用
       };
       
       setGameState(s => ({
@@ -347,7 +426,17 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
         history: silent ? [...fullHistory, historyItemInProgress] : [...s.history, historyItemInProgress],
         summaries: [...s.summaries, scene.summary],
         gameStatus: GameStatus.Playing,
-        turn: newTurn
+        turn: newTurn,
+        ...(playerLocationData && {
+          playerLocation: {
+            mapId: playerLocationData.mapId,
+            locationId: playerLocationData.locationId
+          }
+        }),
+        ...(result.mapData && {
+          // 存储地图数据到游戏状态，供后续使用
+          mapData: result.mapData
+        })
       }));
 
       const updatedHistoryWithModel = [...fullHistory, historyItemInProgress];
@@ -393,7 +482,13 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       if ((e as Error).name === 'AbortError') return;
 
       console.error(e);
-      const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
+      let errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
+      
+      // Check if it's a GameEngine error with specific message
+      if (result && (result as any).error) {
+        errorMessage = (result as any).errorMessage || 'AI未能正确生成响应，请尝试其他行动。';
+      }
+      
       logCommunication('gameplay_error', { message: errorMessage, stack: (e as Error)?.stack });
       const errorItem: HistoryItem = {
         role: 'model' as const, parts: [{ text: JSON.stringify({ title: t.errorTitle, message: errorMessage }) }],
@@ -612,6 +707,23 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                     <button onClick={() => setIsSummaryOpen(true)} disabled={gameState.history.length === 0} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" aria-label={t.storyLog}>
                         <BookIcon className="w-5 h-5"/>
                     </button>
+                    {hasMapButton && (
+                        <button
+                            onClick={() => {
+                                if (gameState.playerLocation && storyMaps.length > 0) {
+                                    const playerMapIndex = storyMaps.findIndex(map => map.id === gameState.playerLocation!.mapId);
+                                    if (playerMapIndex !== -1) {
+                                        setCurrentMapIndex(playerMapIndex);
+                                    }
+                                }
+                                setIsMapViewerOpen(true);
+                            }}
+                            className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors"
+                            aria-label={t.viewMaps}
+                        >
+                            <MapIcon className="w-5 h-5"/>
+                        </button>
+                    )}
                     {showDebug && (
                     <>
                     <button onClick={() => setIsDebugPanelOpen(true)} disabled={gameState.history.length === 0} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" aria-label={t.debugLog}>
@@ -734,6 +846,18 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                     onNext={handleDialogueNext}
                     onSkip={handleDialogueSkip}
                     onComplete={handleDialogueComplete}
+                />
+            )}
+
+            {hasMapButton && (
+                <MapViewerModal
+                    isOpen={isMapViewerOpen}
+                    onClose={() => setIsMapViewerOpen(false)}
+                    maps={storyMaps}
+                    currentMapIndex={currentMapIndex}
+                    onMapChange={setCurrentMapIndex}
+                    playerLocation={gameState.playerLocation}
+                    language={settings.language}
                 />
             )}
         </div>

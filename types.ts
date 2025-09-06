@@ -38,6 +38,7 @@ export type HistoryItem = {
   imageUrl?: string | null;
   isGeneratingImage?: boolean;
   isError?: boolean;
+  mapData?: any; // 存储地图数据供AI后续使用
 };
 
 export interface DebugLogEntry {
@@ -204,6 +205,8 @@ export interface Playthrough {
   gameStatus: GameStatus;
   dialogue?: DialogueState | null;
   placeholderValues?: Record<string, string>;
+  playerLocation?: { mapId: string; locationId: string };
+  mapData?: any; // 存储地图数据供AI后续使用
 }
 
 export interface PlaythroughFromDB {

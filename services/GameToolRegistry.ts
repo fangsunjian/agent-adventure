@@ -285,7 +285,9 @@ export class GameToolRegistry {
             error: error.message,
             fallback: {
               description: '你继续在这个神秘的地方探索着...',
-              imagePrompt: '神秘的环境'
+              imagePrompt: '神秘的环境',
+              actions: ['继续探索', '环顾四周', '思考下一步'],
+              summary: '继续探索未知的环境'
             }
           };
         }
@@ -494,6 +496,196 @@ export class GameToolRegistry {
       },
       requiredFor: ['summary', 'special_event'],
       priority: 6
+    });
+
+    // 地图相关工具
+    this.register({
+      name: 'get_available_maps',
+      description: '获取当前故事中可用的地图列表',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async (args: {}, context) => {
+        try {
+          console.log('🗺️ Getting available maps');
+          context.logCommunication('tool_get_available_maps', args);
+          
+          const maps = context.activeStory.library.filter(card => 
+            card.type === 'map' && card.mapImageUrl && card.mapLocations
+          );
+          
+          const mapList = maps.map(map => ({
+            id: map.id,
+            name: map.name,
+            description: map.content || '',
+            locationCount: map.mapLocations?.length || 0,
+            locations: map.mapLocations?.map(loc => ({
+              id: loc.id,
+              name: loc.name,
+              description: loc.description
+            })) || []
+          }));
+          
+          return {
+            success: true,
+            maps: mapList,
+            totalMaps: mapList.length
+          };
+        } catch (error) {
+          console.error('❌ Error in get_available_maps tool:', error);
+          context.logCommunication('tool_error_get_available_maps', error);
+          
+          return {
+            success: false,
+            error: error.message,
+            maps: [],
+            totalMaps: 0
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action'],
+      priority: 8
+    });
+
+    this.register({
+      name: 'get_location_details',
+      description: '获取指定地点的详细信息',
+      parameters: {
+        type: 'object',
+        properties: {
+          mapId: {
+            type: 'string',
+            description: '地图的ID'
+          },
+          locationId: {
+            type: 'string',
+            description: '位置的ID'
+          }
+        },
+        required: ['mapId', 'locationId']
+      },
+      handler: async (args: { mapId: string; locationId: string }, context) => {
+        try {
+          console.log('📍 Getting location details:', args);
+          context.logCommunication('tool_get_location_details', args);
+          
+          if (!args.mapId || !args.locationId) {
+            throw new Error('Both mapId and locationId are required');
+          }
+          
+          const map = context.activeStory.library.find(card => 
+            card.type === 'map' && card.id === args.mapId
+          );
+          
+          if (!map) {
+            throw new Error(`Map with ID ${args.mapId} not found`);
+          }
+          
+          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
+          
+          if (!location) {
+            throw new Error(`Location with ID ${args.locationId} not found in map ${args.mapId}`);
+          }
+          
+          return {
+            success: true,
+            location: {
+              id: location.id,
+              name: location.name,
+              description: location.description,
+              mapName: map.name,
+              coordinates: {
+                x: location.x,
+                y: location.y
+              }
+            }
+          };
+        } catch (error) {
+          console.error('❌ Error in get_location_details tool:', error);
+          context.logCommunication('tool_error_get_location_details', error);
+          
+          return {
+            success: false,
+            error: error.message,
+            location: null
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action'],
+      priority: 8
+    });
+
+    this.register({
+      name: 'set_player_location',
+      description: '设置玩家当前位置',
+      parameters: {
+        type: 'object',
+        properties: {
+          mapId: {
+            type: 'string',
+            description: '地图的ID'
+          },
+          locationId: {
+            type: 'string',
+            description: '位置的ID'
+          },
+          reason: {
+            type: 'string',
+            description: '移动到此位置的原因或描述'
+          }
+        },
+        required: ['mapId', 'locationId']
+      },
+      handler: async (args: { mapId: string; locationId: string; reason?: string }, context) => {
+        try {
+          console.log('📍 Setting player location:', args);
+          context.logCommunication('tool_set_player_location', args);
+          
+          if (!args.mapId || !args.locationId) {
+            throw new Error('Both mapId and locationId are required');
+          }
+          
+          // 验证地图和位置存在
+          const map = context.activeStory.library.find(card => 
+            card.type === 'map' && card.id === args.mapId
+          );
+          
+          if (!map) {
+            throw new Error(`Map with ID ${args.mapId} not found`);
+          }
+          
+          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
+          
+          if (!location) {
+            throw new Error(`Location with ID ${args.locationId} not found in map ${args.mapId}`);
+          }
+          
+          return {
+            success: true,
+            playerLocation: {
+              mapId: args.mapId,
+              locationId: args.locationId,
+              mapName: map.name,
+              locationName: location.name,
+              reason: args.reason || `玩家移动到了${location.name}`,
+              timestamp: Date.now()
+            }
+          };
+        } catch (error) {
+          console.error('❌ Error in set_player_location tool:', error);
+          context.logCommunication('tool_error_set_player_location', error);
+          
+          return {
+            success: false,
+            error: error.message,
+            playerLocation: null
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action', 'dialogue'],
+      priority: 8
     });
   }
 

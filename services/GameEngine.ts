@@ -1,8 +1,7 @@
-import { jsonrepair } from 'jsonrepair';
-import type { HistoryItem, GameSettings, Memories, Story, SceneFragment } from '../types';
+import { PROMPTS } from '../prompts/index';
+import type { GameSettings, HistoryItem, Memories, SceneFragment, Story } from '../types';
 import { GameToolRegistry, type GameToolContext, type SceneType } from './GameToolRegistry';
 import { SceneAnalyzer } from './SceneAnalyzer';
-import { PROMPTS } from '../prompts/index';
 
 // 重新导出用于测试
 export { GameToolRegistry } from './GameToolRegistry';
@@ -13,6 +12,10 @@ export interface GameEngineResult {
   rawResponse: string;
   toolCalls?: any[];
   actionData?: any; // 添加actionData字段用于传递行动选项
+  playerLocationData?: { mapId: string; locationId: string; mapName: string; locationName: string; reason: string };
+  mapData?: any; // 新增：存储地图数据
+  error?: boolean;
+  errorMessage?: string;
   engineData?: {
     sceneAnalysis: any;
     toolsUsed: string[];
@@ -38,7 +41,7 @@ export class GameEngine {
   }
 
   /**
-   * 核心游戏引擎 - 使用工具化系统生成游戏场景
+   * 核心游戏引擎 - 使用工具化系统生成游戏场景（支持多轮工具调用）
    */
   static async processGameTurn(
     history: HistoryItem[],
@@ -79,8 +82,8 @@ export class GameEngine {
         logCommunication
       };
       
-      // 调用AI进行游戏推进（传递turnCount）
-      const aiResult = await this.callAIWithTools(
+      // 启动多轮工具调用循环
+      const processedResult = await this.processMultiTurnToolCalls(
         history,
         settings,
         memories,
@@ -88,13 +91,7 @@ export class GameEngine {
         gameContext,
         logCommunication,
         abortSignal,
-        turnCount
-      );
-      
-      // 处理工具调用结果
-      const processedResult = await this.processToolCalls(
-        aiResult,
-        gameContext,
+        turnCount,
         toolHandler
       );
       
@@ -104,20 +101,440 @@ export class GameEngine {
         ...processedResult,
         engineData: {
           sceneAnalysis,
-          toolsUsed: aiResult.toolCalls?.map(tc => tc.function?.name).filter(Boolean) || [],
-          executionTime,
-          turnCount
+          toolsUsed: processedResult.allToolsUsed || [],
+          executionTime
         }
       };
       
     } catch (error) {
       const executionTime = Date.now() - startTime;
       console.error('❌ Game engine error:', error);
-      logCommunication('game_engine_error', { error: error.message, executionTime });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logCommunication('game_engine_error', { error: errorMessage, executionTime });
       
       // 返回应急场景
-      return this.createFallbackScene(error.message, executionTime);
+      return this.createFallbackScene(errorMessage, executionTime);
     }
+  }
+
+  /**
+   * 多轮工具调用处理 - 实现标准OpenAI工具调用链
+   */
+  private static async processMultiTurnToolCalls(
+    history: HistoryItem[],
+    settings: GameSettings,
+    memories: Memories,
+    toolsToUse: string[],
+    gameContext: GameToolContext,
+    logCommunication: (type: string, data: any) => void,
+    abortSignal: AbortSignal,
+    turnCount: number,
+    toolHandler?: ToolHandler
+  ): Promise<Omit<GameEngineResult, 'engineData'> & { allToolsUsed: string[] }> {
+    
+    interface ToolResult {
+      toolName: string;
+      success: boolean;
+      data?: any;
+      error?: string;
+    }
+    
+    console.log('🔄 Starting multi-turn tool call processing...');
+    
+    let currentMessages = this.buildPromptParts(history, memories, settings).openAIMessages;
+    let allToolsUsed: string[] = [];
+    let allToolResults: ToolResult[] = [];
+    let maxIterations = 5; // 防止无限循环
+    let iteration = 0;
+    let retryCount = 0;
+    const maxRetries = 1;
+    
+    while (iteration < maxIterations) {
+      iteration++;
+      console.log(`🔄 Tool call iteration ${iteration}/${maxIterations}`);
+      
+      // 调用AI获取工具决策
+      const aiResult = await this.callAIWithMessages(
+        currentMessages,
+        toolsToUse,
+        settings,
+        logCommunication,
+        abortSignal,
+        turnCount
+      );
+      
+      if (!aiResult.toolCalls || aiResult.toolCalls.length === 0) {
+        console.log('⚠️ No tool calls in iteration, ending loop');
+        break;
+      }
+      
+      // 执行工具调用
+      const toolResults = await this.executeToolCalls(aiResult.toolCalls, gameContext);
+      allToolsUsed.push(...toolResults.map((tr: ToolResult) => tr.toolName));
+      allToolResults.push(...toolResults);
+      
+      // 检查是否有终结性工具
+      const terminalResult = toolResults.find((result: ToolResult) =>
+        ['advance_scene', 'show_dialogue'].includes(result.toolName) && result.success
+      );
+      
+      if (terminalResult) {
+        console.log(`✅ Found terminal tool: ${terminalResult.toolName}, ending loop`);
+        return await this.buildFinalResult(allToolResults, aiResult.rawResponse, toolHandler, allToolsUsed);
+      }
+      
+      // 检查核心工具是否失败或参数缺失，需要重试
+      const coreToolsFailed = toolResults.some(result =>
+        ['advance_scene', 'show_dialogue'].includes(result.toolName) &&
+        (!result.success || this.isMissingKeyFields(result.data, result.toolName))
+      );
+      
+      if (coreToolsFailed && retryCount < maxRetries) {
+        console.log(`⚠️ Core tool failed or missing fields, retrying AI request (attempt ${retryCount + 1}/${maxRetries})`);
+        retryCount++;
+        // 不添加工具结果到历史，继续下一次iteration重试AI
+        continue;
+      }
+      
+      // 将工具结果添加到消息历史中
+      currentMessages = this.addToolResultsToMessages(currentMessages, aiResult.toolCalls, toolResults);
+      
+      console.log(`🔄 Continuing to iteration ${iteration + 1}, tools used so far:`, allToolsUsed);
+    }
+    
+    // 如果超过最大迭代次数或重试失败，创建error结果
+    if (iteration >= maxIterations || retryCount >= maxRetries) {
+      console.log('❌ Max iterations or retries reached, returning error result');
+      const playerLocationData = allToolResults.find(tr => tr.toolName === 'set_player_location' && tr.success && tr.data?.playerLocation)?.data?.playerLocation || null;
+      return {
+        scene: this.createErrorScene('AI未能正确生成响应，请尝试其他行动。'),
+        rawResponse: 'Max iterations or retries reached',
+        toolCalls: [],
+        actionData: { actions: ['继续探索'], context: '选择下一步行动' },
+        playerLocationData,
+        allToolsUsed,
+        error: true
+      };
+    }
+    
+    // 如果超过最大迭代次数，创建fallback结果
+    console.log('⚠️ Reached maximum iterations, creating fallback result');
+    const playerLocationData = allToolResults.find(tr => tr.toolName === 'set_player_location' && tr.success && tr.data?.playerLocation)?.data?.playerLocation || null;
+    return {
+      scene: this.createMinimalScene('游戏继续进行中...'),
+      rawResponse: 'Max iterations reached',
+      toolCalls: [],
+      actionData: { actions: ['继续'], context: '继续游戏' },
+      playerLocationData,
+      allToolsUsed
+    };
+  }
+
+  // 检查工具数据是否缺失关键字段
+  private static isMissingKeyFields(data: any, toolName: string): boolean {
+    if (!data) return true;
+    
+    switch (toolName) {
+      case 'advance_scene':
+        return !data.description || !data.actions || data.actions.length === 0;
+      case 'show_dialogue':
+        return !data.speaker || !data.messages || data.messages.length === 0 || !data.actions || data.actions.length === 0;
+      default:
+        return false;
+    }
+  }
+
+  // 创建错误场景
+  private static createErrorScene(message: string): SceneFragment {
+    return {
+      description: message,
+      imagePrompt: '',
+      actions: ['继续探索', '查看周围'],
+      summary: 'AI响应错误'
+    };
+  }
+
+  /**
+   * 调用AI处理消息
+   */
+  private static async callAIWithMessages(
+    messages: any[],
+    toolsToUse: string[],
+    settings: GameSettings,
+    logCommunication: (type: string, data: any) => void,
+    abortSignal: AbortSignal,
+    turnCount: number
+  ): Promise<{ toolCalls?: any[]; content?: string; rawResponse: string }> {
+    
+    if (settings.provider !== 'custom' || !settings.customEndpoint) {
+      throw new Error('Game Engine currently only supports custom providers');
+    }
+    
+    // 获取工具定义
+    const sceneTypes = this.getSceneTypesFromTools(toolsToUse);
+    const tools = GameToolRegistry.getToolsForOpenAIWithTurnCount(
+      sceneTypes.length > 0 ? sceneTypes : undefined,
+      turnCount,
+      settings
+    );
+    
+    const requestPayload: any = {
+      model: settings.customModelId || 'gpt-4-turbo',
+      messages: messages,
+      tools: tools,
+      tool_choice: "required",
+      temperature: Number(settings.llm.temperature || 0.7),
+      top_p: Number(settings.llm.topP || 1),
+      max_tokens: Number(settings.llm.maxOutputTokens || 1000),
+    };
+    
+    const isGoogleAPI = settings.customEndpoint?.includes('googleapis.com');
+    if (!isGoogleAPI) {
+      requestPayload.frequency_penalty = Number(settings.llm.frequencyPenalty || 0);
+      requestPayload.presence_penalty = Number(settings.llm.presencePenalty || 0);
+      
+      if (settings.llm.reasoningEffort) {
+        requestPayload.reasoning_effort = settings.llm.reasoningEffort;
+      }
+    }
+    
+    logCommunication('📤 multi_turn_ai_request', requestPayload);
+    
+    const url = settings.customEndpoint.replace(/\/+$/, '') + '/chat/completions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.customApiKey}`
+      },
+      body: JSON.stringify(requestPayload),
+      signal: abortSignal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`AI API error: ${response.status} ${response.statusText} - ${errorBody}`);
+    }
+    
+    const result = await response.json();
+    logCommunication('📥 multi_turn_ai_response', result);
+    
+    if (!result.choices || result.choices.length === 0) {
+      throw new Error('AI returned empty response');
+    }
+
+    const choice = result.choices[0];
+    
+    return {
+      toolCalls: choice.message.tool_calls,
+      content: choice.message.content,
+      rawResponse: JSON.stringify(result)
+    };
+  }
+
+  /**
+   * 执行工具调用
+   */
+  private static async executeToolCalls(
+    toolCalls: any[],
+    gameContext: GameToolContext
+  ): Promise<Array<{ toolName: string; success: boolean; data?: any; error?: string }>> {
+    
+    const results = [];
+    
+    for (const toolCall of toolCalls) {
+      try {
+        console.log(`🔧 Executing tool: ${toolCall.function?.name}`);
+        
+        const result = await GameToolRegistry.executeTool(toolCall, gameContext);
+        
+        results.push({
+          toolName: toolCall.function?.name,
+          success: result.success,
+          data: result,
+          error: result.error
+        });
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`❌ Tool execution failed for ${toolCall.function?.name}:`, error);
+        
+        results.push({
+          toolName: toolCall.function?.name,
+          success: false,
+          error: errorMessage
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * 将工具结果添加到消息历史
+   */
+  private static addToolResultsToMessages(
+    currentMessages: any[],
+    toolCalls: any[],
+    toolResults: Array<{ toolName: string; success: boolean; data?: any; error?: string }>
+  ): any[] {
+    
+    const newMessages = [...currentMessages];
+    
+    // 添加AI的工具调用消息
+    newMessages.push({
+      role: 'assistant',
+      content: null,
+      tool_calls: toolCalls
+    });
+    
+    // 添加每个工具的结果消息
+    toolCalls.forEach((toolCall, index) => {
+      const toolResult = toolResults[index];
+      const resultContent = toolResult?.success
+        ? JSON.stringify(toolResult.data)
+        : `Error: ${toolResult?.error || 'Unknown error'}`;
+      
+      newMessages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: resultContent
+      });
+    });
+    
+    return newMessages;
+  }
+
+  /**
+   * 构建最终结果
+   */
+  private static async buildFinalResult(
+    toolResults: Array<{ toolName: string; success: boolean; data?: any; error?: string }>,
+    rawResponse: string,
+    toolHandler?: ToolHandler,
+    allToolsUsed?: string[]
+  ): Promise<Omit<GameEngineResult, 'engineData'> & { allToolsUsed: string[] }> {
+    
+    let sceneData: any = null;
+    let actionData: any = null;
+    let summaryData: any = null;
+    let playerLocationData: any = null;
+    let mapData: any = null;
+    let isDialogueOnly = false;
+    const processedToolCalls: any[] = [];
+    let error: boolean = false;
+    let errorMessage: string = '';
+    
+    // 处理工具结果
+    for (const toolResult of toolResults) {
+      console.log('Processing tool result:', {
+        toolName: toolResult.toolName,
+        success: toolResult.success,
+        hasData: !!toolResult.data,
+        dataKeys: toolResult.data ? Object.keys(toolResult.data) : []
+      });
+      
+      if (!toolResult.success || !toolResult.data) {
+        // 如果核心工具失败，标记错误
+        if (['advance_scene', 'show_dialogue'].includes(toolResult.toolName)) {
+          error = true;
+          errorMessage = toolResult.error || `Tool ${toolResult.toolName} failed`;
+        }
+        continue;
+      }
+      
+      const data = toolResult.data;
+      
+      if (data.sceneData) sceneData = data.sceneData;
+      if (data.actionData) actionData = data.actionData;
+      if (data.summaryData) summaryData = data.summaryData;
+      
+      // Handle player location from set_player_location tool
+      if (toolResult.toolName === 'set_player_location' && data.playerLocation) {
+        playerLocationData = data.playerLocation;
+        console.log('🎯 Set playerLocationData from set_player_location tool:', playerLocationData);
+      }
+      
+      if (data.maps) mapData = data;
+      
+      // 构建toolCall格式供上层使用
+      processedToolCalls.push({
+        id: `tool-${Date.now()}-${toolResult.toolName}`,
+        type: 'function',
+        function: {
+          name: toolResult.toolName,
+          arguments: JSON.stringify({})
+        }
+      });
+      
+      // 处理对话
+      if (toolResult.toolName === 'show_dialogue' && data.dialogueData && toolHandler?.show_dialogue) {
+        isDialogueOnly = true;
+        await toolHandler.show_dialogue(data.dialogueData);
+      }
+    }
+    
+    // 如果有错误，创建错误场景
+    if (error) {
+      return {
+        scene: this.createErrorScene(errorMessage),
+        rawResponse,
+        toolCalls: processedToolCalls,
+        actionData: actionData || { actions: ['继续探索'], context: '选择下一步行动' },
+        playerLocationData,
+        mapData,
+        allToolsUsed: allToolsUsed || [],
+        error: true,
+        errorMessage
+      };
+    }
+    
+    // 确保有行动数据
+    if (!actionData) {
+      actionData = {
+        actions: ['继续探索', '仔细观察', '寻找线索'],
+        context: '选择下一步行动'
+      };
+    }
+    
+    // 对于纯对话场景，也需要返回有效的场景数据
+    if (isDialogueOnly && !sceneData) {
+      console.log('🎭 Pure dialogue scene, creating minimal scene with updated actions');
+      console.log('🎯 ActionData received:', actionData);
+      
+      const minimalScene = {
+        description: '', // 空描述，因为对话已经显示
+        imagePrompt: '',
+        actions: actionData?.actions || ['继续'],
+        summary: summaryData?.summary || '进行了对话交流'
+      };
+      
+      console.log('🎯 Final scene actions:', minimalScene.actions);
+      
+      return {
+        scene: minimalScene,
+        rawResponse,
+        toolCalls: processedToolCalls,
+        actionData: actionData, // 确保actionData被传递
+        playerLocationData,
+        mapData,
+        allToolsUsed: allToolsUsed || []
+      };
+    }
+    
+    // 构建场景 - 确保使用最新的actionData
+    const finalScene = this.buildFinalScene(sceneData, actionData, summaryData);
+    console.log('🎯 Final scene built with actions:', finalScene.actions);
+    
+    return {
+      scene: finalScene,
+      rawResponse,
+      toolCalls: processedToolCalls,
+      actionData: actionData, // 确保actionData被传递
+      playerLocationData,
+      mapData,
+      allToolsUsed: allToolsUsed || []
+    };
   }
 
   private static selectTools(sceneAnalysis: any, turnCount?: number): string[] {
@@ -139,7 +556,7 @@ export class GameEngine {
       }
       
       // 添加其他建议的工具（排除已处理的和不再需要的）
-      const otherTools = suggestedTools.filter(tool => 
+      const otherTools = suggestedTools.filter((tool: string) =>
         !['show_dialogue', 'advance_scene', 'generate_actions', 'create_minor_summary', 'create_major_summary'].includes(tool)
       );
       selectedTools.push(...otherTools);
@@ -222,7 +639,7 @@ export class GameEngine {
     );
     
     // 构建请求
-    const requestPayload = {
+    const requestPayload: any = {
       model: settings.customModelId || 'gpt-4-turbo',
       messages: openAIMessages,
       tools: tools,
@@ -235,11 +652,11 @@ export class GameEngine {
     // 添加非Google API的参数
     const isGoogleAPI = settings.customEndpoint?.includes('googleapis.com');
     if (!isGoogleAPI) {
-      requestPayload['frequency_penalty'] = Number(settings.llm.frequencyPenalty || 0);
-      requestPayload['presence_penalty'] = Number(settings.llm.presencePenalty || 0);
+      requestPayload.frequency_penalty = Number(settings.llm.frequencyPenalty || 0);
+      requestPayload.presence_penalty = Number(settings.llm.presencePenalty || 0);
       
       if (settings.llm.reasoningEffort) {
-        requestPayload['reasoning_effort'] = settings.llm.reasoningEffort;
+        requestPayload.reasoning_effort = settings.llm.reasoningEffort;
       }
     }
     
@@ -297,7 +714,10 @@ export class GameEngine {
     let actionData: any = null;
     let summaryData: any = null;
     let systemMessage: any = null;
+    let playerLocationData: any = null;
+    let mapData: any = null; // 新增：存储地图数据
     let isDialogueOnly = false; // 新增：标记是否只是对话
+    let hasMapToolsOnly = false; // 新增：标记是否只有地图工具
     const processedToolCalls: any[] = [];
     
     // 按顺序执行工具调用
@@ -316,6 +736,8 @@ export class GameEngine {
           }
           if (result.summaryData) summaryData = result.summaryData;
           if (result.systemMessage) systemMessage = result.systemMessage;
+          if (result.playerLocation) playerLocationData = result.playerLocation;
+          if (result.maps) mapData = result; // 收集地图数据（get_available_maps返回的是result.maps）
           
           // 处理对话工具的特殊情况
           if (toolCall.function?.name === 'show_dialogue' && result.dialogueData && toolHandler?.show_dialogue) {
@@ -334,11 +756,58 @@ export class GameEngine {
         
       } catch (toolError) {
         console.error(`❌ Tool execution failed for ${toolCall.function?.name}:`, toolError);
+        const errorMessage = toolError instanceof Error ? toolError.message : String(toolError);
         gameContext.logCommunication('tool_execution_failed', {
           tool: toolCall.function?.name,
-          error: toolError.message
+          error: errorMessage
         });
       }
+    }
+    
+    // 检查是否只有地图工具（没有scene生成工具）
+    const mapToolNames = ['get_available_maps', 'get_location_details', 'set_player_location'];
+    const hasOnlyMapTools = processedToolCalls.length > 0 && 
+      processedToolCalls.every(tc => mapToolNames.includes(tc.function?.name));
+    
+    // 如果只有地图工具且没有场景数据，创建一个临时的信息场景
+    if (hasOnlyMapTools && !sceneData) {
+      console.log('🗺️ Map tools only, creating informational scene');
+      gameContext.logCommunication('map_tools_only', {
+        tools: processedToolCalls.map(tc => tc.function?.name),
+        hasMapData: !!mapData,
+        hasPlayerLocation: !!playerLocationData
+      });
+      
+      // 创建一个包含真实地图数据的场景，让AI知道可用的地图信息
+      let mapInfoText = '';
+      if (mapData && mapData.maps && mapData.maps.length > 0) {
+        mapInfoText = `你发现了${mapData.totalMaps}张重要地图：`;
+        mapData.maps.forEach((map: any, index: number) => {
+          mapInfoText += `\n${index + 1}. ${map.name}`;
+          if (map.locations && map.locations.length > 0) {
+            mapInfoText += `（包含${map.locations.length}个地点）`;
+          }
+        });
+        mapInfoText += '\n\n这些地图可能对你的冒险有帮助。';
+      } else {
+        mapInfoText = '你尝试查看地图信息，但没有发现任何可用的地图。';
+      }
+      
+      const infoScene = {
+        description: mapInfoText,
+        imagePrompt: '古老的地图和导航工具',
+        actions: ['研究地图详情', '继续探索', '寻找其他线索'],
+        summary: '获取了地图信息'
+      };
+      
+      return {
+        scene: infoScene,
+        rawResponse: aiResult.rawResponse,
+        toolCalls: processedToolCalls,
+        actionData: { actions: infoScene.actions, context: '基于地图信息选择行动' },
+        playerLocationData: playerLocationData,
+        mapData: mapData
+      };
     }
     
     // 简化检查：现在 advance_scene 和 show_dialogue 自动包含行动选项
@@ -361,10 +830,11 @@ export class GameEngine {
     if (isDialogueOnly && !sceneData) {
       // 对话场景不需要额外的场景描述，返回空场景但包含actionData
       return {
-        scene: null, // 表示这是纯对话，不需要场景显示
+        scene: undefined, // 表示这是纯对话，不需要场景显示
         rawResponse: aiResult.rawResponse,
         toolCalls: processedToolCalls,
-        actionData: actionData // 重要：传递actionData给GamePage
+        actionData: actionData, // 重要：传递actionData给GamePage
+        playerLocationData: playerLocationData
       };
     }
     
@@ -375,7 +845,8 @@ export class GameEngine {
       scene: finalScene,
       rawResponse: aiResult.rawResponse,
       toolCalls: processedToolCalls,
-      actionData: actionData // 也为常规场景传递actionData
+      actionData: actionData, // 也为常规场景传递actionData
+      playerLocationData: playerLocationData
     };
   }
 
@@ -440,6 +911,17 @@ export class GameEngine {
     
     // 使用现有的 buildContextualHistory 和 buildPromptParts 逻辑
     const contextualHistory = this.buildContextualHistory(convertedHistory, memories, settings);
+    
+    // 检查是否有地图数据需要包含在提示词中
+    const lastModelResponse = history.filter(item => item.role === 'model').pop();
+    if (lastModelResponse?.mapData) {
+      // 如果最后一条AI响应包含地图数据，添加到上下文
+      contextualHistory.push({
+        role: 'user',
+        parts: [{ text: `[地图数据: ${JSON.stringify(lastModelResponse.mapData)}]` }]
+      });
+    }
+    
     return this.buildPromptPartsFromContextual(contextualHistory, settings);
   }
   
