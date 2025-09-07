@@ -70,13 +70,13 @@ const ActionsPanel: React.FC<ActionsPanelProps> = ({ actions, onAction, onStop, 
     <div 
       className="h-full flex flex-col p-4 space-y-3 bg-white/[var(--game-panel-bg-opacity-light)] dark:bg-zinc-900/[var(--game-panel-bg-opacity-dark)] rounded-lg border border-gray-200 dark:border-zinc-800"
     >
-      <div className="flex-grow space-y-3 overflow-y-auto pr-2">
+      <div className="flex-grow space-y-2 overflow-y-auto pr-2">
         {actions.map((action, index) => (
           <button
             key={index}
             onClick={() => onAction(action)}
             disabled={isLoading || disabled}
-            className="w-full text-left px-5 py-3 bg-white text-gray-800 font-semibold rounded-md border border-gray-300 hover:bg-indigo-500 hover:border-indigo-600 hover:text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-500 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700 dark:hover:bg-indigo-600 dark:hover:border-indigo-500 dark:hover:text-white dark:disabled:bg-zinc-800 dark:disabled:border-zinc-700 dark:disabled:text-zinc-500"
+            className="w-full text-left px-4 py-2.5 bg-white text-gray-800 font-semibold rounded-md border border-gray-300 hover:bg-indigo-500 hover:border-indigo-600 hover:text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-500 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700 dark:hover:bg-indigo-600 dark:hover:border-indigo-500 dark:hover:text-white dark:disabled:bg-zinc-800 dark:disabled:border-zinc-700 dark:disabled:text-zinc-500"
           >
             {action}
           </button>

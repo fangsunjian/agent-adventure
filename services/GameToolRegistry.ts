@@ -44,6 +44,238 @@ export class GameToolRegistry {
     console.log(`✅ Game Tool Registry initialized with ${this.tools.size} tools`);
   }
 
+  /**
+   * 根据故事内容动态注册内容相关工具
+   */
+  static registerContentBasedTools(activeStory: Story) {
+    const toolsRegistered: string[] = [];
+    
+    // 检测并注册地图相关工具
+    const storyMaps = activeStory.library.filter(card => 
+      card.type === 'map' && card.mapImageUrl && card.mapLocations && card.mapLocations.length > 0
+    );
+    
+    if (storyMaps.length > 0) {
+      console.log(`🗺️ Found ${storyMaps.length} maps in story, registering map tools`);
+      this.registerMapTools();
+      toolsRegistered.push('map_tools');
+    } else {
+      console.log('⚪ No maps found in story, skipping map tools registration');
+      // 移除已注册的地图工具（如果有的话）
+      this.unregisterMapTools();
+    }
+    
+    // 未来可以在这里添加其他内容相关工具的检测
+    // if (activeStory.library.some(card => card.type === 'inventory')) {
+    //   this.registerInventoryTools();
+    //   toolsRegistered.push('inventory_tools');
+    // }
+    
+    return toolsRegistered;
+  }
+
+  /**
+   * 注册地图相关工具
+   */
+  private static registerMapTools() {
+    // get_available_maps工具
+    this.register({
+      name: 'get_available_maps',
+      description: '获取当前故事中可用的地图列表',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async (args: {}, context) => {
+        try {
+          console.log('🗺️ Getting available maps');
+          context.logCommunication('tool_get_available_maps', args);
+          
+          const maps = context.activeStory.library.filter(card => 
+            card.type === 'map' && card.mapImageUrl && card.mapLocations
+          );
+          
+          const mapList = maps.map(map => ({
+            id: map.id,
+            name: map.name,
+            description: map.content || '',
+            locationCount: map.mapLocations?.length || 0,
+            locations: map.mapLocations?.map(loc => ({
+              id: loc.id,
+              name: loc.name,
+              description: loc.description
+            })) || []
+          }));
+          
+          return {
+            success: true,
+            maps: mapList,
+            totalMaps: mapList.length
+          };
+        } catch (error) {
+          console.error('❌ Error in get_available_maps tool:', error);
+          context.logCommunication('tool_error_get_available_maps', error);
+          
+          return {
+            success: false,
+            error: error.message,
+            maps: [],
+            totalMaps: 0
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action'],
+      priority: 8
+    });
+
+    // get_location_details工具
+    this.register({
+      name: 'get_location_details',
+      description: '获取地图上特定位置的详细信息',
+      parameters: {
+        type: 'object',
+        properties: {
+          mapId: {
+            type: 'string',
+            description: '地图的ID'
+          },
+          locationId: {
+            type: 'string',
+            description: '位置的ID'
+          }
+        },
+        required: ['mapId', 'locationId']
+      },
+      handler: async (args: { mapId: string; locationId: string }, context) => {
+        try {
+          console.log('🔍 Getting location details:', args);
+          context.logCommunication('tool_get_location_details', args);
+          
+          const map = context.activeStory.library.find(card => 
+            card.type === 'map' && card.id === args.mapId
+          );
+          
+          if (!map) {
+            throw new Error(`Map with ID ${args.mapId} not found`);
+          }
+          
+          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
+          
+          if (!location) {
+            throw new Error(`Location with ID ${args.locationId} not found in map ${map.name}`);
+          }
+          
+          return {
+            success: true,
+            location: {
+              id: location.id,
+              name: location.name,
+              description: location.description,
+              coordinates: { x: location.x, y: location.y }
+            },
+            mapName: map.name,
+            mapDescription: map.content || ''
+          };
+        } catch (error) {
+          console.error('❌ Error in get_location_details tool:', error);
+          context.logCommunication('tool_error_get_location_details', error);
+          
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action'],
+      priority: 7
+    });
+
+    // set_player_location工具
+    this.register({
+      name: 'set_player_location',
+      description: '设置玩家当前位置。当玩家移动到新地点、传送、或故事明确提到玩家到达某个具体地点时使用。应在描述玩家到达或移动到地图上某个位置时调用，特别是开始游戏时设定初始位置，或玩家执行"前往..."、"到达..."等移动行动时',
+      parameters: {
+        type: 'object',
+        properties: {
+          mapId: {
+            type: 'string',
+            description: '地图的ID'
+          },
+          locationId: {
+            type: 'string',
+            description: '位置的ID'
+          },
+          reason: {
+            type: 'string',
+            description: '移动到此位置的原因或描述'
+          }
+        },
+        required: ['mapId', 'locationId']
+      },
+      handler: async (args: { mapId: string; locationId: string; reason?: string }, context) => {
+        try {
+          console.log('📍 Setting player location:', args);
+          context.logCommunication('tool_set_player_location', args);
+          
+          if (!args.mapId || !args.locationId) {
+            throw new Error('Both mapId and locationId are required');
+          }
+          
+          // 验证地图和位置存在
+          const map = context.activeStory.library.find(card => 
+            card.type === 'map' && card.id === args.mapId
+          );
+          
+          if (!map) {
+            throw new Error(`Map with ID ${args.mapId} not found`);
+          }
+          
+          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
+          
+          if (!location) {
+            throw new Error(`Location with ID ${args.locationId} not found in map ${map.name}`);
+          }
+          
+          return {
+            success: true,
+            playerLocation: {
+              mapId: args.mapId,
+              locationId: args.locationId,
+              mapName: map.name,
+              locationName: location.name,
+              reason: args.reason || '玩家位置已更新',
+              coordinates: { x: location.x, y: location.y }
+            }
+          };
+        } catch (error) {
+          console.error('❌ Error in set_player_location tool:', error);
+          context.logCommunication('tool_error_set_player_location', error);
+          
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action'],
+      priority: 9
+    });
+  }
+
+  /**
+   * 移除地图相关工具
+   */
+  private static unregisterMapTools() {
+    const mapTools = ['get_available_maps', 'get_location_details', 'set_player_location'];
+    mapTools.forEach(toolName => {
+      if (this.tools.has(toolName)) {
+        this.tools.delete(toolName);
+        console.log(`🗑️ Unregistered map tool: ${toolName}`);
+      }
+    });
+  }
+
   private static registerCoreTools() {
     // 对话工具（从现有系统迁移并优化）
     this.register({
@@ -498,195 +730,7 @@ export class GameToolRegistry {
       priority: 6
     });
 
-    // 地图相关工具
-    this.register({
-      name: 'get_available_maps',
-      description: '获取当前故事中可用的地图列表',
-      parameters: {
-        type: 'object',
-        properties: {},
-        required: []
-      },
-      handler: async (args: {}, context) => {
-        try {
-          console.log('🗺️ Getting available maps');
-          context.logCommunication('tool_get_available_maps', args);
-          
-          const maps = context.activeStory.library.filter(card => 
-            card.type === 'map' && card.mapImageUrl && card.mapLocations
-          );
-          
-          const mapList = maps.map(map => ({
-            id: map.id,
-            name: map.name,
-            description: map.content || '',
-            locationCount: map.mapLocations?.length || 0,
-            locations: map.mapLocations?.map(loc => ({
-              id: loc.id,
-              name: loc.name,
-              description: loc.description
-            })) || []
-          }));
-          
-          return {
-            success: true,
-            maps: mapList,
-            totalMaps: mapList.length
-          };
-        } catch (error) {
-          console.error('❌ Error in get_available_maps tool:', error);
-          context.logCommunication('tool_error_get_available_maps', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            maps: [],
-            totalMaps: 0
-          };
-        }
-      },
-      requiredFor: ['exploration', 'action'],
-      priority: 8
-    });
-
-    this.register({
-      name: 'get_location_details',
-      description: '获取指定地点的详细信息',
-      parameters: {
-        type: 'object',
-        properties: {
-          mapId: {
-            type: 'string',
-            description: '地图的ID'
-          },
-          locationId: {
-            type: 'string',
-            description: '位置的ID'
-          }
-        },
-        required: ['mapId', 'locationId']
-      },
-      handler: async (args: { mapId: string; locationId: string }, context) => {
-        try {
-          console.log('📍 Getting location details:', args);
-          context.logCommunication('tool_get_location_details', args);
-          
-          if (!args.mapId || !args.locationId) {
-            throw new Error('Both mapId and locationId are required');
-          }
-          
-          const map = context.activeStory.library.find(card => 
-            card.type === 'map' && card.id === args.mapId
-          );
-          
-          if (!map) {
-            throw new Error(`Map with ID ${args.mapId} not found`);
-          }
-          
-          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
-          
-          if (!location) {
-            throw new Error(`Location with ID ${args.locationId} not found in map ${args.mapId}`);
-          }
-          
-          return {
-            success: true,
-            location: {
-              id: location.id,
-              name: location.name,
-              description: location.description,
-              mapName: map.name,
-              coordinates: {
-                x: location.x,
-                y: location.y
-              }
-            }
-          };
-        } catch (error) {
-          console.error('❌ Error in get_location_details tool:', error);
-          context.logCommunication('tool_error_get_location_details', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            location: null
-          };
-        }
-      },
-      requiredFor: ['exploration', 'action'],
-      priority: 8
-    });
-
-    this.register({
-      name: 'set_player_location',
-      description: '设置玩家当前位置',
-      parameters: {
-        type: 'object',
-        properties: {
-          mapId: {
-            type: 'string',
-            description: '地图的ID'
-          },
-          locationId: {
-            type: 'string',
-            description: '位置的ID'
-          },
-          reason: {
-            type: 'string',
-            description: '移动到此位置的原因或描述'
-          }
-        },
-        required: ['mapId', 'locationId']
-      },
-      handler: async (args: { mapId: string; locationId: string; reason?: string }, context) => {
-        try {
-          console.log('📍 Setting player location:', args);
-          context.logCommunication('tool_set_player_location', args);
-          
-          if (!args.mapId || !args.locationId) {
-            throw new Error('Both mapId and locationId are required');
-          }
-          
-          // 验证地图和位置存在
-          const map = context.activeStory.library.find(card => 
-            card.type === 'map' && card.id === args.mapId
-          );
-          
-          if (!map) {
-            throw new Error(`Map with ID ${args.mapId} not found`);
-          }
-          
-          const location = map.mapLocations?.find(loc => loc.id === args.locationId);
-          
-          if (!location) {
-            throw new Error(`Location with ID ${args.locationId} not found in map ${args.mapId}`);
-          }
-          
-          return {
-            success: true,
-            playerLocation: {
-              mapId: args.mapId,
-              locationId: args.locationId,
-              mapName: map.name,
-              locationName: location.name,
-              reason: args.reason || `玩家移动到了${location.name}`,
-              timestamp: Date.now()
-            }
-          };
-        } catch (error) {
-          console.error('❌ Error in set_player_location tool:', error);
-          context.logCommunication('tool_error_set_player_location', error);
-          
-          return {
-            success: false,
-            error: error.message,
-            playerLocation: null
-          };
-        }
-      },
-      requiredFor: ['exploration', 'action', 'dialogue'],
-      priority: 8
-    });
+    // 地图相关工具现在通过 registerContentBasedTools 方法动态注册
   }
 
   static register(tool: GameTool) {
@@ -696,16 +740,12 @@ export class GameToolRegistry {
 
   static getTools(sceneTypes?: SceneType[]): GameTool[] {
     if (!sceneTypes || sceneTypes.length === 0) {
-      return Array.from(this.tools.values()).sort((a, b) => a.priority - b.priority);
+      return Array.from(this.tools.values());
     }
     
-    return Array.from(this.tools.values())
-      .filter(tool => sceneTypes.some(type => tool.requiredFor.includes(type)))
-      .sort((a, b) => a.priority - b.priority);
-  }
-
-  static getTool(name: string): GameTool | undefined {
-    return this.tools.get(name);
+    return Array.from(this.tools.values()).filter(tool =>
+      tool.requiredFor.some(type => sceneTypes.includes(type))
+    );
   }
 
   static getToolsForOpenAI(sceneTypes?: SceneType[]): any[] {
@@ -720,141 +760,103 @@ export class GameToolRegistry {
     }));
   }
 
-  // 动态修改工具参数的方法
-  static getToolsForOpenAIWithTurnCount(sceneTypes?: SceneType[], turnCount?: number, settings?: any): any[] {
+  // 动态工具选择和参数修改系统
+  static getToolsForOpenAIWithTurnCount(sceneTypes?: SceneType[], turnCount?: number, settings?: GameSettings): any[] {
     const tools = this.getTools(sceneTypes);
-    const isMajorSummaryTurn = turnCount && turnCount % 5 === 0;
     
     return tools.map(tool => {
-      let modifiedTool = {
+      let modifiedTool = { ...tool };
+      
+      // 动态修改工具参数
+      if (turnCount) {
+        modifiedTool = this.modifyToolForTurn(modifiedTool, turnCount, settings);
+      }
+      
+      return {
         type: 'function',
         function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: { 
-            ...tool.parameters,
-            required: [...(tool.parameters.required || [])] // 复制required数组
-          }
+          name: modifiedTool.name,
+          description: modifiedTool.description,
+          parameters: modifiedTool.parameters
         }
       };
-
-      // 动态修改 advance_scene 和 show_dialogue 的参数结构
-      if (tool.name === 'advance_scene') {
-        // 根据设置决定是否包含 imagePrompt 参数
-        if (!settings?.enableImageGeneration) {
-          delete modifiedTool.function.parameters.properties.imagePrompt;
-          // 更新 required 数组
-          modifiedTool.function.parameters.required = modifiedTool.function.parameters.required.filter(
-            (param: string) => param !== 'imagePrompt'
-          );
-        }
-        
-        if (isMajorSummaryTurn) {
-          // 第5轮：添加大总结参数到properties
-          modifiedTool.function.description = '推进游戏场景并创建大总结，描述新的环境、情况和发生的事件。必须生成行动选项和大总结。';
-          modifiedTool.function.parameters.properties.achievements = {
-            type: 'array',
-            items: { type: 'string' },
-            description: '玩家取得的成就或进展'
-          };
-          modifiedTool.function.parameters.properties.newMemories = {
-            type: 'array',
-            items: { type: 'string' },
-            description: '需要记住的新信息'
-          };
-          
-          // 添加大总结参数到required数组
-          modifiedTool.function.parameters.required.push('achievements', 'newMemories');
-          
-          // 修改summary描述
-          if (modifiedTool.function.parameters.properties.summary) {
-            modifiedTool.function.parameters.properties.summary.description = '对最近5轮对话的详细总结';
-          }
-        } else {
-          // 普通轮次：保持小总结参数
-          modifiedTool.function.description = '推进游戏场景，描述新的环境、情况和发生的事件。必须生成行动选项和小总结。';
-        }
-      }
-
-      if (tool.name === 'show_dialogue') {
-        if (isMajorSummaryTurn) {
-          // 第5轮：添加大总结参数到properties
-          modifiedTool.function.description = '显示NPC对话内容并创建大总结。必须生成行动选项和大总结。';
-          modifiedTool.function.parameters.properties.achievements = {
-            type: 'array',
-            items: { type: 'string' },
-            description: '玩家取得的成就或进展'
-          };
-          modifiedTool.function.parameters.properties.newMemories = {
-            type: 'array',
-            items: { type: 'string' },
-            description: '需要记住的新信息'
-          };
-          
-          // 添加大总结参数到required数组
-          modifiedTool.function.parameters.required.push('achievements', 'newMemories');
-          
-          // 修改summary描述
-          if (modifiedTool.function.parameters.properties.summary) {
-            modifiedTool.function.parameters.properties.summary.description = '对最近5轮对话的详细总结';
-          }
-        } else {
-          // 普通轮次：保持小总结参数
-          modifiedTool.function.description = '显示NPC对话内容。必须生成行动选项和小总结。';
-        }
-      }
-
-      return modifiedTool;
     });
   }
 
-  static async executeTool(toolCall: any, context: GameToolContext): Promise<any> {
-    try {
-      const toolName = toolCall.function?.name;
-      if (!toolName) {
-        throw new Error('Tool call missing function name');
+  private static modifyToolForTurn(tool: GameTool, turnCount: number, settings?: GameSettings): GameTool {
+    const modifiedTool = JSON.parse(JSON.stringify(tool)); // Deep clone
+    
+    // 为核心工具动态添加参数
+    if (tool.name === 'advance_scene' || tool.name === 'show_dialogue') {
+      // 所有回合都需要 actions 和 summary
+      if (!modifiedTool.parameters.properties.actions) {
+        modifiedTool.parameters.properties.actions = {
+          type: 'array',
+          items: { type: 'string' },
+          description: '提供3-6个具体的行动选项，让玩家选择下一步行动'
+        };
+        modifiedTool.parameters.required.push('actions');
       }
-
-      const tool = this.getTool(toolName);
-      if (!tool) {
-        throw new Error(`Unknown tool: ${toolName}`);
+      
+      if (!modifiedTool.parameters.properties.summary) {
+        modifiedTool.parameters.properties.summary = {
+          type: 'string',
+          description: '本回合的简要总结，用于记录重要信息'
+        };
+        modifiedTool.parameters.required.push('summary');
       }
-
-      console.log(`🔧 Executing tool: ${toolName}`);
-      context.logCommunication('🔧 tool_execution_start', { tool: toolName, args: toolCall.function.arguments });
-
-      // 解析参数，使用jsonrepair处理可能的格式问题
-      let args;
-      try {
-        args = JSON.parse(toolCall.function.arguments);
-      } catch (parseError) {
-        console.log(`⚠️ JSON parse failed for ${toolName}, attempting repair...`);
-        try {
-          const repairedArgs = jsonrepair(toolCall.function.arguments);
-          args = JSON.parse(repairedArgs);
-          console.log(`✅ Successfully repaired JSON for ${toolName}`);
-        } catch (repairError) {
-          console.error(`❌ JSON repair failed for ${toolName}:`, repairError);
-          throw new Error(`Invalid JSON arguments for tool ${toolName}: ${parseError.message}`);
+      
+      // 每5回合添加特殊参数
+      if (turnCount % 5 === 0) {
+        modifiedTool.parameters.properties.isImportantMemory = {
+          type: 'boolean',
+          description: '这是否是一个重要的记忆点或里程碑'
+        };
+        modifiedTool.parameters.properties.achievements = {
+          type: 'array',
+          items: { type: 'string' },
+          description: '玩家在这个阶段取得的成就或进展'
+        };
+        modifiedTool.parameters.properties.newMemories = {
+          type: 'array',
+          items: { type: 'string' },
+          description: '需要记住的新信息或发现'
+        };
+      }
+      
+      // 图像生成参数（如果启用）
+      if (settings?.enableImageGeneration && tool.name === 'advance_scene') {
+        if (!modifiedTool.parameters.properties.imagePrompt) {
+          modifiedTool.parameters.properties.imagePrompt = {
+            type: 'string',
+            description: '生成场景图像的详细描述（英文）'
+          };
+          modifiedTool.parameters.required.push('imagePrompt');
         }
       }
-
-      // 执行工具
-      const result = await tool.handler(args, context);
-      
-      console.log(`✅ Tool ${toolName} executed successfully`);
-      context.logCommunication('✅ tool_execution_success', { tool: toolName, result });
-      
-      return result;
-    } catch (error) {
-      console.error('❌ Tool execution error:', error);
-      context.logCommunication('❌ tool_execution_error', { 
-        tool: toolCall.function?.name, 
-        error: error.message,
-        stack: error.stack 
-      });
-      
-      throw error;
     }
+    
+    return modifiedTool;
+  }
+
+  static async executeTool(toolCall: any, context: GameToolContext): Promise<any> {
+    const toolName = toolCall.function?.name;
+    const tool = this.tools.get(toolName);
+    
+    if (!tool) {
+      throw new Error(`Unknown tool: ${toolName}`);
+    }
+    
+    let args: any = {};
+    try {
+      args = typeof toolCall.function.arguments === 'string' 
+        ? JSON.parse(toolCall.function.arguments)
+        : toolCall.function.arguments || {};
+    } catch (error) {
+      console.error(`Failed to parse arguments for tool ${toolName}:`, error);
+      return { success: false, error: 'Invalid tool arguments' };
+    }
+    
+    return await tool.handler(args, context);
   }
 }

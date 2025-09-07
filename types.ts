@@ -207,6 +207,7 @@ export interface Playthrough {
   placeholderValues?: Record<string, string>;
   playerLocation?: { mapId: string; locationId: string };
   mapData?: any; // 存储地图数据供AI后续使用
+  hasUnviewedLocationChange?: boolean; // 跟踪是否有未查看的位置变化
 }
 
 export interface PlaythroughFromDB {

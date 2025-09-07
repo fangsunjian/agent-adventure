@@ -220,8 +220,9 @@ export async function getNextSceneWithTools(
             }
 
             const choice = result.choices[0];
-            const toolCalls = choice.message.tool_calls;
-            const content = choice.message.content;
+            
+            // 使用GameEngine的通用工具调用处理（支持xAI格式）
+            const { toolCalls, content } = GameEngine.processAIResponseToolCalls(choice, logCommunication);
 
             console.log('Raw API response choice:', choice);
             console.log('Tool calls detected:', toolCalls);

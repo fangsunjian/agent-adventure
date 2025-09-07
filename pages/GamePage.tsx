@@ -12,6 +12,7 @@ import SceneDisplay from '../components/SceneDisplay';
 import SummaryPanel from '../components/SummaryPanel';
 import { simpleUUID, translations } from '../constants';
 import { evaluateAndGenerateMilestone, generateImage, getNextSceneWithGameEngine, getNextSceneWithTools, type ToolHandler } from '../services/aiService';
+import { GameEngine } from '../services/GameEngine';
 import type { DebugLogEntry, DetectedPlaceholder, GameSettings, HistoryItem, Memories, Playthrough, Scene, SceneFragment, Story } from '../types';
 import { GameStatus } from '../types';
 
@@ -50,6 +51,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       gameStatus: GameStatus.Idle,
       dialogue: null,
       placeholderValues: {},
+      hasUnviewedLocationChange: false,
     };
   });
   
@@ -68,6 +70,11 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     return playthrough?.placeholderValues || {};
   });
   const [processedStory, setProcessedStory] = useState<Story | null>(null);
+  
+  // 跟踪上一次的玩家位置
+  const prevPlayerLocationRef = useRef<{ mapId: string; locationId: string } | null>(null);
+  // 跟踪组件是否刚刚挂载（用于区分数据库恢复和真实位置变化）
+  const isInitialLoadRef = useRef(true);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -137,6 +144,9 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, []);
 
   const startNewSession = useCallback((story: Story, userName?: string, charName?: string) => {
+    // 重置GameEngine会话状态（包括LLM提供商检测）
+    GameEngine.resetSession();
+    
     const openingMonologue = parseContent(story.openingMonologue);
     
     const monologueScene: SceneFragment = {
@@ -253,6 +263,34 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
         onSavePlaythrough({ storyId: activeStory.id, ...gameState });
       }
   }, [gameState, activeStory.id, onSavePlaythrough]);
+
+  // 监测玩家位置变化
+  useEffect(() => {
+    const currentLocation = gameState.playerLocation;
+    const prevLocation = prevPlayerLocationRef.current;
+    
+    // 如果是初次加载，标记为完成并跳过位置变化检测
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      prevPlayerLocationRef.current = currentLocation || null;
+      return;
+    }
+    
+    // 检测位置变化
+    if (currentLocation) {
+      // 如果有前一个位置且位置发生变化，显示红点
+      if (prevLocation && (currentLocation.mapId !== prevLocation.mapId || currentLocation.locationId !== prevLocation.locationId)) {
+        setGameState(prev => ({ ...prev, hasUnviewedLocationChange: true }));
+      }
+      // 如果没有前一个位置但游戏已开始（首次设置位置），显示红点
+      else if (!prevLocation && gameState.history.length >= 1) {
+        setGameState(prev => ({ ...prev, hasUnviewedLocationChange: true }));
+      }
+    }
+    
+    // 更新上一次位置
+    prevPlayerLocationRef.current = currentLocation || null;
+  }, [gameState.playerLocation, gameState.history.length]);
   
 
   const processAction = async (action: string, currentState: typeof gameState, customSettings?: GameSettings, silent?: boolean) => {
@@ -717,11 +755,18 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                                     }
                                 }
                                 setIsMapViewerOpen(true);
+                                // 清除红点提示
+                                if (gameState.hasUnviewedLocationChange) {
+                                    setGameState(prev => ({ ...prev, hasUnviewedLocationChange: false }));
+                                }
                             }}
-                            className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors"
+                            className="relative p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors"
                             aria-label={t.viewMaps}
                         >
                             <MapIcon className="w-5 h-5"/>
+                            {gameState.hasUnviewedLocationChange && (
+                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                            )}
                         </button>
                     )}
                     {showDebug && (

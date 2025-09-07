@@ -30,6 +30,7 @@ export interface ToolHandler {
 
 export class GameEngine {
   private static initialized = false;
+  private static detectedLLMProvider: string | null = null; // 会话级别的LLM提供商检测
   
   static initialize() {
     if (this.initialized) return;
@@ -38,6 +39,14 @@ export class GameEngine {
     GameToolRegistry.initialize();
     this.initialized = true;
     console.log('✅ Game Engine initialized');
+  }
+
+  /**
+   * 重置会话状态（用于新游戏开始时）
+   */
+  static resetSession() {
+    console.log('🔄 Resetting GameEngine session state');
+    this.detectedLLMProvider = null;
   }
 
   /**
@@ -68,6 +77,9 @@ export class GameEngine {
       const sceneAnalysis = SceneAnalyzer.analyze(history, memories, activeStory);
       console.log('📊 Scene analysis:', sceneAnalysis);
       logCommunication('scene_analysis', sceneAnalysis);
+      
+      // 根据故事内容动态注册工具
+      GameToolRegistry.registerContentBasedTools(activeStory);
       
       // 选择合适的工具集（传递轮次信息）
       const toolsToUse = this.selectTools(sceneAnalysis, turnCount);
@@ -141,7 +153,7 @@ export class GameEngine {
     
     console.log('🔄 Starting multi-turn tool call processing...');
     
-    let currentMessages = this.buildPromptParts(history, memories, settings).openAIMessages;
+    let currentMessages = this.buildPromptParts(history, memories, settings, gameContext.activeStory).openAIMessages;
     let allToolsUsed: string[] = [];
     let allToolResults: ToolResult[] = [];
     let maxIterations = 5; // 防止无限循环
@@ -325,11 +337,128 @@ export class GameEngine {
 
     const choice = result.choices[0];
     
+    // 使用通用的AI响应工具调用处理
+    const { toolCalls, content } = this.processAIResponseToolCalls(choice, logCommunication);
+    
     return {
-      toolCalls: choice.message.tool_calls,
-      content: choice.message.content,
+      toolCalls: toolCalls,
+      content: content,
       rawResponse: JSON.stringify(result)
     };
+  }
+
+  /**
+   * 通用的AI响应工具调用处理（包含xAI格式检测）
+   */
+  static processAIResponseToolCalls(choice: any, logCommunication: (type: string, data: any) => void): { toolCalls: any[]; content: string } {
+    let toolCalls = choice.message.tool_calls;
+    let content = choice.message.content;
+    
+    // 如果没有标准tool_calls但有content，检查是否是xAI格式
+    if (!toolCalls && content && content.includes('<xai:function_call')) {
+      console.log('🔍 Detected xAI non-standard tool call format');
+      
+      // 记录LLM提供商（仅首次检测时）
+      if (!this.detectedLLMProvider) {
+        this.detectedLLMProvider = 'xai';
+        console.log('📝 Detected LLM provider: xAI');
+        logCommunication('llm_provider_detected', { provider: 'xai', format: 'non-standard-function-calls' });
+      }
+      
+      toolCalls = this.parseXAIToolCalls(content);
+      console.log('🔄 Converted xAI format to standard tool calls:', toolCalls);
+    }
+    
+    // 如果已经检测到是xAI，但这次没有明显的xAI标记，仍然尝试解析
+    else if (this.detectedLLMProvider === 'xai' && !toolCalls && content) {
+      const potentialToolCalls = this.parseXAIToolCalls(content);
+      if (potentialToolCalls && potentialToolCalls.length > 0) {
+        toolCalls = potentialToolCalls;
+        console.log('🔄 Applied xAI parsing to current response:', toolCalls);
+      }
+    }
+    
+    return { toolCalls: toolCalls || [], content: content || '' };
+  }
+
+  /**
+   * 解析xAI非标准工具调用格式
+   */
+  private static parseXAIToolCalls(content: string): any[] {
+    const toolCalls: any[] = [];
+    
+    try {
+      // 匹配 <xai:function_call>...</xai:function_call> 格式
+      const functionCallRegex = /<xai:function_call[^>]*>\s*({.*?})\s*<\/xai:function_call>/gs;
+      let match;
+      let callIndex = 0;
+      
+      while ((match = functionCallRegex.exec(content)) !== null) {
+        try {
+          const jsonContent = match[1];
+          const parsedCall = JSON.parse(jsonContent);
+          
+          // 转换为标准OpenAI tool call格式
+          const standardToolCall = {
+            id: `xai_call_${Date.now()}_${callIndex}`,
+            type: 'function',
+            function: {
+              name: parsedCall.name,
+              arguments: typeof parsedCall.arguments === 'string' 
+                ? parsedCall.arguments 
+                : JSON.stringify(parsedCall.arguments)
+            }
+          };
+          
+          toolCalls.push(standardToolCall);
+          callIndex++;
+          
+          console.log('✅ Parsed xAI tool call:', standardToolCall);
+          
+        } catch (parseError) {
+          console.warn('⚠️ Failed to parse xAI function call JSON:', match[1], parseError);
+        }
+      }
+      
+      // 如果没有找到标准格式，尝试其他可能的xAI格式
+      if (toolCalls.length === 0 && content.includes('function_call')) {
+        console.log('🔍 Attempting alternative xAI parsing patterns...');
+        
+        // 尝试解析其他可能的格式，如简单的函数调用
+        const simpleFunctionRegex = /function_call\s*[:=]\s*({[^}]*name[^}]*})/g;
+        let simpleMatch;
+        
+        while ((simpleMatch = simpleFunctionRegex.exec(content)) !== null) {
+          try {
+            const jsonContent = simpleMatch[1];
+            const parsedCall = JSON.parse(jsonContent);
+            
+            if (parsedCall.name) {
+              const standardToolCall = {
+                id: `xai_simple_${Date.now()}_${callIndex}`,
+                type: 'function',
+                function: {
+                  name: parsedCall.name,
+                  arguments: JSON.stringify(parsedCall.arguments || {})
+                }
+              };
+              
+              toolCalls.push(standardToolCall);
+              callIndex++;
+              console.log('✅ Parsed simple xAI function call:', standardToolCall);
+            }
+            
+          } catch (parseError) {
+            console.warn('⚠️ Failed to parse simple xAI function call:', simpleMatch[1], parseError);
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error parsing xAI tool calls:', error);
+    }
+    
+    return toolCalls;
   }
 
   /**
@@ -625,7 +754,7 @@ export class GameEngine {
     }
     
     // 构建提示词和历史
-    const { openAIMessages } = this.buildPromptParts(history, memories, settings);
+    const { openAIMessages } = this.buildPromptParts(history, memories, settings, gameContext.activeStory);
     
     // 获取动态修改后的工具定义（传递settings参数）
     console.log('🔧 Using tools:', toolsToUse);
@@ -687,9 +816,12 @@ export class GameEngine {
 
     const choice = result.choices[0];
     
+    // 使用通用的AI响应工具调用处理
+    const { toolCalls, content } = this.processAIResponseToolCalls(choice, logCommunication);
+    
     return {
-      toolCalls: choice.message.tool_calls,
-      content: choice.message.content,
+      toolCalls: toolCalls,
+      content: content,
       rawResponse: JSON.stringify(result)
     };
   }
@@ -889,7 +1021,7 @@ export class GameEngine {
 
   // 从原有aiService复制的辅助方法
   // 从原有aiService复制的辅助方法
-  private static buildPromptParts(history: HistoryItem[], memories: Memories, settings: GameSettings) {
+  private static buildPromptParts(history: HistoryItem[], memories: Memories, settings: GameSettings, activeStory?: Story) {
     // 将标准 HistoryItem 格式转换为内部格式
     const convertedHistory = [];
     
@@ -922,7 +1054,7 @@ export class GameEngine {
       });
     }
     
-    return this.buildPromptPartsFromContextual(contextualHistory, settings);
+    return this.buildPromptPartsFromContextual(contextualHistory, settings, activeStory);
   }
   
   // 复制 buildContextualHistory 的核心逻辑
@@ -950,13 +1082,18 @@ export class GameEngine {
   
   // 构建最终的提示词格式
   // 构建最终的提示词格式
-  private static buildPromptPartsFromContextual(contextualHistory: any[], settings: GameSettings) {
+  private static buildPromptPartsFromContextual(contextualHistory: any[], settings: GameSettings, activeStory?: Story) {
     // 从prompts系统获取指令
     const language = settings.language === 'zh' ? 'zh' : 'en';
-    const baseInstruction = PROMPTS[language].baseSystemInstruction;
+    let systemContent = PROMPTS[language].baseSystemInstruction;
+    
+    // 在不告知玩家的情况下添加故事背景给AI
+    if (activeStory?.backgroundSetting) {
+      systemContent += `\n\n[STORY BACKGROUND - DO NOT REVEAL TO PLAYER]: ${activeStory.backgroundSetting}`;
+    }
 
     const openAIMessages = [
-      { role: 'system', content: baseInstruction }
+      { role: 'system', content: systemContent }
     ];
     
     // 转换历史记录为 OpenAI 格式，并清理AI响应内容
