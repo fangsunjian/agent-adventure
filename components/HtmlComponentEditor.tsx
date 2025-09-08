@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { HtmlComponentData } from '../types';
+import MonacoEditorComponent from './MonacoEditorComponent';
 
 interface HtmlComponentEditorProps {
   htmlData: HtmlComponentData;
   onChange: (htmlData: HtmlComponentData) => void;
+  isFullscreen?: boolean;
 }
 
 type EditorTab = 'html' | 'css' | 'js';
 
-const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onChange }) => {
+const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onChange, isFullscreen = false }) => {
   const [activeTab, setActiveTab] = useState<EditorTab>('html');
   const [srcDoc, setSrcDoc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -729,9 +731,9 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
   };
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-96">
-        {/* 代码编辑器 */}
+    <div className={isFullscreen ? 'h-full flex flex-col' : 'space-y-4'}>
+      <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-1 xl:grid-cols-2 flex-grow' : 'grid-cols-1 lg:grid-cols-2 h-96'}`}>
+        {/* Monaco 代码编辑器 */}
         <div className="bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden">
           {/* 标签页 */}
           <div className="flex bg-gray-200 dark:bg-zinc-900">
@@ -751,13 +753,14 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
             ))}
           </div>
 
-          {/* 代码编辑区 */}
-          <div className="flex-grow relative">
-            <textarea
+          {/* Monaco编辑区 */}
+          <div className="flex-grow">
+            <MonacoEditorComponent
+              language={activeTab === 'js' ? 'javascript' : activeTab}
               value={code[activeTab]}
-              onChange={e => handleCodeChange(activeTab, e.target.value)}
-              className="absolute inset-0 w-full h-full p-4 bg-gray-900 text-gray-200 font-mono text-sm resize-none border-0 focus:outline-none"
-              spellCheck="false"
+              onChange={(value) => handleCodeChange(activeTab, value)}
+              isFullscreen={false}
+              theme="dark"
               placeholder={`输入${tabConfig[activeTab].name}代码...`}
             />
           </div>
@@ -786,20 +789,23 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
       </div>
 
       {/* 工具提示 */}
-      <div className="text-sm text-gray-600 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-        <div className="flex items-start space-x-2">
-          <i className="fas fa-info-circle mt-0.5"></i>
-          <div>
-            <p><strong>提示：</strong></p>
-            <ul className="list-disc list-inside space-y-1 mt-1">
-              <li>代码会实时预览，编辑后稍等片刻即可看到效果</li>
-              <li>支持Font Awesome图标库，可直接使用图标样式</li>
-              <li>JavaScript代码运行在沙盒环境中，确保安全</li>
-              <li>后续版本将支持AI工具定义，实现与游戏引擎的交互</li>
-            </ul>
+      {!isFullscreen && (
+        <div className="text-sm text-gray-600 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <i className="fas fa-info-circle mt-0.5"></i>
+            <div>
+              <p><strong>专业编辑器特性：</strong></p>
+              <ul className="list-disc list-inside space-y-1 mt-1">
+                <li>Monaco Editor专业代码编辑体验，支持语法高亮和智能补全</li>
+                <li>支持F11全屏编辑模式，提供更大编辑空间</li>
+                <li>gameAPI自动补全，快速编写游戏交互代码</li>
+                <li>支持AI工具注册，与游戏引擎深度集成</li>
+                <li>Font Awesome图标库已预载，可直接使用</li>
+              </ul>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
