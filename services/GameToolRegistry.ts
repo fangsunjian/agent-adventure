@@ -27,6 +27,13 @@ export interface GameToolContext {
 export class GameToolRegistry {
   private static tools: Map<string, GameTool> = new Map();
   private static initialized = false;
+  private static toolMetadata: Map<string, {
+    registrationTime: number;
+    lastUsed: number;
+    usageCount: number;
+    source: 'core' | 'map' | 'html_component' | 'dynamic';
+    componentId?: string;
+  }> = new Map();
 
   static initialize() {
     if (this.initialized) return;
@@ -63,6 +70,21 @@ export class GameToolRegistry {
       console.log('⚪ No maps found in story, skipping map tools registration');
       // 移除已注册的地图工具（如果有的话）
       this.unregisterMapTools();
+    }
+    
+    // 检测并注册HTML组件工具
+    const htmlComponents = activeStory.library.filter(card => 
+      card.type === 'html' && card.htmlData && card.htmlData.js
+    );
+    
+    if (htmlComponents.length > 0) {
+      console.log(`📟 Found ${htmlComponents.length} HTML components in story, registering HTML component tools`);
+      this.registerHtmlComponentTools(htmlComponents);
+      toolsRegistered.push('html_component_tools');
+    } else {
+      console.log('⚪ No HTML components found in story, skipping HTML component tools registration');
+      // 移除已注册的HTML组件工具（如果有的话）
+      this.unregisterHtmlComponentTools();
     }
     
     // 未来可以在这里添加其他内容相关工具的检测
@@ -127,7 +149,7 @@ export class GameToolRegistry {
       },
       requiredFor: ['exploration', 'action'],
       priority: 8
-    });
+    }, 'map');
 
     // get_location_details工具
     this.register({
@@ -189,7 +211,7 @@ export class GameToolRegistry {
       },
       requiredFor: ['exploration', 'action'],
       priority: 7
-    });
+    }, 'map');
 
     // set_player_location工具
     this.register({
@@ -260,7 +282,7 @@ export class GameToolRegistry {
       },
       requiredFor: ['exploration', 'action'],
       priority: 9
-    });
+    }, 'map');
   }
 
   /**
@@ -272,6 +294,202 @@ export class GameToolRegistry {
       if (this.tools.has(toolName)) {
         this.tools.delete(toolName);
         console.log(`🗑️ Unregistered map tool: ${toolName}`);
+      }
+    });
+  }
+
+  /**
+   * 注册HTML组件相关工具
+   */
+  private static registerHtmlComponentTools(htmlComponents: any[]) {
+    // get_available_html_components工具
+    this.register({
+      name: 'get_available_html_components',
+      description: '获取当前故事中可用的HTML组件列表',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async (args: {}, context) => {
+        try {
+          console.log('📟 Getting available HTML components');
+          context.logCommunication('tool_get_available_html_components', args);
+          
+          const htmlComponents = context.activeStory.library.filter(card => 
+            card.type === 'html' && card.htmlData
+          );
+          
+          const componentList = htmlComponents.map(component => ({
+            id: component.id,
+            name: component.name,
+            description: component.content || '',
+            hasTools: !!(component.htmlData?.toolDefinitions?.length),
+            toolCount: component.htmlData?.toolDefinitions?.length || 0
+          }));
+          
+          return {
+            success: true,
+            components: componentList,
+            totalComponents: componentList.length
+          };
+        } catch (error) {
+          console.error('❌ Error in get_available_html_components tool:', error);
+          context.logCommunication('tool_error_get_available_html_components', error);
+          
+          return {
+            success: false,
+            error: error.message,
+            components: [],
+            totalComponents: 0
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action', 'special_event'],
+      priority: 8
+    }, 'html_component');
+
+    // interact_with_html_component工具
+    this.register({
+      name: 'interact_with_html_component',
+      description: '与HTML组件进行交互，调用组件内定义的工具函数',
+      parameters: {
+        type: 'object',
+        properties: {
+          componentId: {
+            type: 'string',
+            description: 'HTML组件的ID'
+          },
+          action: {
+            type: 'string',
+            description: '要执行的操作或函数名'
+          },
+          parameters: {
+            type: 'object',
+            description: '传递给组件函数的参数'
+          },
+          context: {
+            type: 'string',
+            description: '交互上下文或目的说明'
+          }
+        },
+        required: ['componentId', 'action']
+      },
+      handler: async (args: { componentId: string; action: string; parameters?: any; context?: string }, context) => {
+        try {
+          console.log('🔧 Interacting with HTML component:', args);
+          context.logCommunication('tool_interact_with_html_component', args);
+          
+          const component = context.activeStory.library.find(card => 
+            card.type === 'html' && card.id === args.componentId
+          );
+          
+          if (!component || !component.htmlData) {
+            throw new Error(`HTML component with ID ${args.componentId} not found`);
+          }
+          
+          // 这里返回一个标准化的响应，实际的组件交互会通过postMessage机制处理
+          return {
+            success: true,
+            componentInteraction: {
+              componentId: args.componentId,
+              componentName: component.name,
+              action: args.action,
+              parameters: args.parameters || {},
+              context: args.context || '',
+              timestamp: Date.now(),
+              // 指示游戏引擎需要向HTML组件发送消息
+              requiresComponentCall: true
+            }
+          };
+        } catch (error) {
+          console.error('❌ Error in interact_with_html_component tool:', error);
+          context.logCommunication('tool_error_interact_with_html_component', error);
+          
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action', 'special_event'],
+      priority: 9
+    }, 'html_component');
+
+    // 动态注册每个HTML组件特有的工具
+    htmlComponents.forEach(component => {
+      if (component.htmlData?.toolDefinitions) {
+        component.htmlData.toolDefinitions.forEach((toolDef: any) => {
+          this.register({
+            name: `${component.id}_${toolDef.name}`,
+            description: `${toolDef.description} (来自HTML组件: ${component.name})`,
+            parameters: toolDef.parameters || {
+              type: 'object',
+              properties: {},
+              required: []
+            },
+            handler: async (args: any, context) => {
+              try {
+                console.log(`🛠️ Executing HTML component tool: ${toolDef.name} for component ${component.id}`);
+                context.logCommunication('tool_html_component_dynamic', { 
+                  componentId: component.id, 
+                  toolName: toolDef.name, 
+                  args 
+                });
+                
+                // 返回需要转发给HTML组件的调用信息
+                return {
+                  success: true,
+                  componentToolCall: {
+                    componentId: component.id,
+                    toolName: toolDef.name,
+                    args: args,
+                    timestamp: Date.now(),
+                    requiresComponentCall: true
+                  }
+                };
+              } catch (error) {
+                console.error(`❌ Error in HTML component tool ${toolDef.name}:`, error);
+                context.logCommunication('tool_error_html_component_dynamic', error);
+                
+                return {
+                  success: false,
+                  error: error.message
+                };
+              }
+            },
+            requiredFor: ['exploration', 'action', 'special_event'],
+            priority: 10
+          }, 'html_component', component.id);
+        });
+      }
+    });
+  }
+
+  /**
+   * 移除HTML组件相关工具
+   */
+  private static unregisterHtmlComponentTools() {
+    const htmlComponentTools = ['get_available_html_components', 'interact_with_html_component'];
+    
+    // 移除基础HTML组件工具
+    htmlComponentTools.forEach(toolName => {
+      if (this.tools.has(toolName)) {
+        this.tools.delete(toolName);
+        console.log(`🗑️ Unregistered HTML component tool: ${toolName}`);
+      }
+    });
+    
+    // 移除动态注册的HTML组件特有工具
+    const toolNames = Array.from(this.tools.keys());
+    toolNames.forEach(toolName => {
+      // 匹配 componentId_toolName 格式的动态工具
+      if (toolName.includes('_') && this.tools.has(toolName)) {
+        const tool = this.tools.get(toolName);
+        if (tool && tool.description.includes('来自HTML组件:')) {
+          this.tools.delete(toolName);
+          console.log(`🗑️ Unregistered dynamic HTML component tool: ${toolName}`);
+        }
       }
     });
   }
@@ -733,9 +951,140 @@ export class GameToolRegistry {
     // 地图相关工具现在通过 registerContentBasedTools 方法动态注册
   }
 
-  static register(tool: GameTool) {
+  static register(tool: GameTool, source: 'core' | 'map' | 'html_component' | 'dynamic' = 'core', componentId?: string) {
     this.tools.set(tool.name, tool);
-    console.log(`🔧 Registered tool: ${tool.name}`);
+    
+    // 记录工具元数据
+    this.toolMetadata.set(tool.name, {
+      registrationTime: Date.now(),
+      lastUsed: 0,
+      usageCount: 0,
+      source,
+      componentId
+    });
+    
+    console.log(`🔧 Registered tool: ${tool.name} (source: ${source}${componentId ? `, componentId: ${componentId}` : ''})`);
+  }
+
+  /**
+   * 动态注册HTML组件工具
+   * 允许HTML组件在运行时注册新的工具
+   */
+  static dynamicRegisterHtmlComponentTool(
+    componentId: string, 
+    toolDefinition: {
+      name: string;
+      description: string;
+      parameters: any;
+      jsFunction: string;
+    }
+  ) {
+    const toolName = `${componentId}_${toolDefinition.name}`;
+    
+    // 检查是否已存在同名工具
+    if (this.tools.has(toolName)) {
+      console.log(`⚠️ Tool ${toolName} already exists, updating...`);
+    }
+    
+    const dynamicTool: GameTool = {
+      name: toolName,
+      description: `${toolDefinition.description} (来自HTML组件: ${componentId})`,
+      parameters: toolDefinition.parameters || {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async (args: any, context) => {
+        try {
+          console.log(`🛠️ Executing dynamic HTML component tool: ${toolDefinition.name} for component ${componentId}`);
+          context.logCommunication('tool_html_component_dynamic', { 
+            componentId, 
+            toolName: toolDefinition.name, 
+            args 
+          });
+          
+          // 返回需要转发给HTML组件的调用信息
+          return {
+            success: true,
+            componentToolCall: {
+              componentId,
+              toolName: toolDefinition.name,
+              jsFunction: toolDefinition.jsFunction,
+              args: args,
+              timestamp: Date.now(),
+              requiresComponentCall: true
+            }
+          };
+        } catch (error) {
+          console.error(`❌ Error in dynamic HTML component tool ${toolDefinition.name}:`, error);
+          context.logCommunication('tool_error_html_component_dynamic', error);
+          
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      },
+      requiredFor: ['exploration', 'action', 'special_event'],
+      priority: 10
+    };
+    
+    this.register(dynamicTool, 'dynamic', componentId);
+    console.log(`📟 Dynamic HTML component tool registered: ${toolName}`);
+    
+    return toolName;
+  }
+
+  /**
+   * 取消注册HTML组件工具
+   */
+  static dynamicUnregisterHtmlComponentTool(componentId: string, toolName: string) {
+    const fullToolName = `${componentId}_${toolName}`;
+    
+    if (this.tools.has(fullToolName)) {
+      this.tools.delete(fullToolName);
+      console.log(`🗑️ Dynamic HTML component tool unregistered: ${fullToolName}`);
+      return true;
+    }
+    
+    console.log(`⚠️ Tool ${fullToolName} not found for unregistration`);
+    return false;
+  }
+
+  /**
+   * 获取特定HTML组件的工具列表
+   */
+  static getHtmlComponentTools(componentId: string): GameTool[] {
+    const componentTools: GameTool[] = [];
+    
+    this.tools.forEach((tool, toolName) => {
+      if (toolName.startsWith(`${componentId}_`)) {
+        componentTools.push(tool);
+      }
+    });
+    
+    return componentTools;
+  }
+
+  /**
+   * 取消注册特定HTML组件的所有工具
+   */
+  static unregisterAllHtmlComponentTools(componentId: string) {
+    const toolsToRemove: string[] = [];
+    
+    this.tools.forEach((tool, toolName) => {
+      if (toolName.startsWith(`${componentId}_`)) {
+        toolsToRemove.push(toolName);
+      }
+    });
+    
+    toolsToRemove.forEach(toolName => {
+      this.tools.delete(toolName);
+      console.log(`🗑️ Removed HTML component tool: ${toolName}`);
+    });
+    
+    console.log(`📟 Removed ${toolsToRemove.length} tools for component ${componentId}`);
+    return toolsToRemove.length;
   }
 
   static getTools(sceneTypes?: SceneType[]): GameTool[] {
@@ -847,6 +1196,14 @@ export class GameToolRegistry {
       throw new Error(`Unknown tool: ${toolName}`);
     }
     
+    // 更新使用统计
+    const metadata = this.toolMetadata.get(toolName);
+    if (metadata) {
+      metadata.lastUsed = Date.now();
+      metadata.usageCount++;
+      this.toolMetadata.set(toolName, metadata);
+    }
+    
     let args: any = {};
     try {
       args = typeof toolCall.function.arguments === 'string' 
@@ -858,5 +1215,174 @@ export class GameToolRegistry {
     }
     
     return await tool.handler(args, context);
+  }
+
+  /**
+   * 获取工具使用统计
+   */
+  static getToolStatistics(toolName?: string) {
+    if (toolName) {
+      const tool = this.tools.get(toolName);
+      const metadata = this.toolMetadata.get(toolName);
+      
+      if (!tool || !metadata) {
+        return null;
+      }
+      
+      return {
+        name: toolName,
+        description: tool.description,
+        registrationTime: new Date(metadata.registrationTime).toISOString(),
+        lastUsed: metadata.lastUsed ? new Date(metadata.lastUsed).toISOString() : 'Never',
+        usageCount: metadata.usageCount,
+        source: metadata.source,
+        componentId: metadata.componentId,
+        priority: tool.priority,
+        requiredFor: tool.requiredFor
+      };
+    }
+    
+    // 返回所有工具的统计
+    const statistics = Array.from(this.tools.entries()).map(([name, tool]) => {
+      const metadata = this.toolMetadata.get(name) || {
+        registrationTime: 0,
+        lastUsed: 0,
+        usageCount: 0,
+        source: 'unknown' as const
+      };
+      
+      return {
+        name,
+        description: tool.description,
+        registrationTime: new Date(metadata.registrationTime).toISOString(),
+        lastUsed: metadata.lastUsed ? new Date(metadata.lastUsed).toISOString() : 'Never',
+        usageCount: metadata.usageCount,
+        source: metadata.source,
+        componentId: metadata.componentId,
+        priority: tool.priority,
+        requiredFor: tool.requiredFor
+      };
+    });
+    
+    return {
+      totalTools: statistics.length,
+      toolsBySource: {
+        core: statistics.filter(s => s.source === 'core').length,
+        map: statistics.filter(s => s.source === 'map').length,
+        html_component: statistics.filter(s => s.source === 'html_component').length,
+        dynamic: statistics.filter(s => s.source === 'dynamic').length
+      },
+      mostUsed: statistics.sort((a, b) => b.usageCount - a.usageCount).slice(0, 5),
+      leastUsed: statistics.filter(s => s.usageCount === 0),
+      recentlyRegistered: statistics.sort((a, b) => 
+        new Date(b.registrationTime).getTime() - new Date(a.registrationTime).getTime()
+      ).slice(0, 5),
+      tools: statistics
+    };
+  }
+
+  /**
+   * 清理未使用的工具
+   */
+  static cleanupUnusedTools(maxAge: number = 24 * 60 * 60 * 1000) { // 默认24小时
+    const now = Date.now();
+    const removedTools: string[] = [];
+    
+    this.toolMetadata.forEach((metadata, toolName) => {
+      // 只清理动态注册的工具且超过maxAge未使用
+      if (metadata.source === 'dynamic' && 
+          metadata.usageCount === 0 && 
+          (now - metadata.registrationTime) > maxAge) {
+        
+        this.tools.delete(toolName);
+        this.toolMetadata.delete(toolName);
+        removedTools.push(toolName);
+        console.log(`🧹 Cleaned up unused dynamic tool: ${toolName}`);
+      }
+    });
+    
+    console.log(`🧹 Cleanup completed: removed ${removedTools.length} unused dynamic tools`);
+    return removedTools;
+  }
+
+  /**
+   * 获取工具健康状态
+   */
+  static getToolHealth() {
+    const totalTools = this.tools.size;
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    const oneDay = 24 * oneHour;
+    
+    let usedInLastHour = 0;
+    let usedInLastDay = 0;
+    let neverUsed = 0;
+    let totalUsage = 0;
+    
+    this.toolMetadata.forEach(metadata => {
+      totalUsage += metadata.usageCount;
+      
+      if (metadata.usageCount === 0) {
+        neverUsed++;
+      } else if ((now - metadata.lastUsed) < oneHour) {
+        usedInLastHour++;
+      } else if ((now - metadata.lastUsed) < oneDay) {
+        usedInLastDay++;
+      }
+    });
+    
+    return {
+      totalTools,
+      totalUsage,
+      averageUsagePerTool: totalTools > 0 ? (totalUsage / totalTools).toFixed(2) : '0',
+      usedInLastHour,
+      usedInLastDay,
+      neverUsed,
+      healthScore: Math.round(((totalTools - neverUsed) / totalTools) * 100) || 0
+    };
+  }
+
+  /**
+   * 更新工具定义
+   */
+  static updateTool(toolName: string, updates: Partial<GameTool>) {
+    const existingTool = this.tools.get(toolName);
+    const metadata = this.toolMetadata.get(toolName);
+    
+    if (!existingTool || !metadata) {
+      console.log(`⚠️ Tool ${toolName} not found for update`);
+      return false;
+    }
+    
+    const updatedTool = { ...existingTool, ...updates };
+    this.tools.set(toolName, updatedTool);
+    
+    console.log(`🔄 Updated tool: ${toolName}`);
+    return true;
+  }
+
+  /**
+   * 安全移除工具（包含依赖检查）
+   */
+  static safeRemoveTool(toolName: string) {
+    const tool = this.tools.get(toolName);
+    const metadata = this.toolMetadata.get(toolName);
+    
+    if (!tool || !metadata) {
+      console.log(`⚠️ Tool ${toolName} not found for removal`);
+      return false;
+    }
+    
+    // 核心工具不允许移除
+    if (metadata.source === 'core') {
+      console.log(`🚫 Cannot remove core tool: ${toolName}`);
+      return false;
+    }
+    
+    this.tools.delete(toolName);
+    this.toolMetadata.delete(toolName);
+    
+    console.log(`🗑️ Safely removed tool: ${toolName}`);
+    return true;
   }
 }

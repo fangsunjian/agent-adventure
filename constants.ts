@@ -122,6 +122,7 @@ export const translations = {
     cardTypeSetting: "Setting",
     cardTypeCustom: "Custom",
     cardTypeMap: "Map",
+    cardTypeHtml: "HTML Component",
     customTypeName: "Custom Type Name",
     // Map-specific translations
     mapImageUrl: "Map Image URL",
@@ -307,6 +308,7 @@ export const translations = {
     cardTypeSetting: "设定",
     cardTypeCustom: "自定义",
     cardTypeMap: "地图",
+    cardTypeHtml: "HTML组件",
     customTypeName: "自定义类别名称",
     // Map-specific translations
     mapImageUrl: "地图图片URL",

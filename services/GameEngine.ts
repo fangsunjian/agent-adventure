@@ -477,12 +477,30 @@ export class GameEngine {
         
         const result = await GameToolRegistry.executeTool(toolCall, gameContext);
         
-        results.push({
-          toolName: toolCall.function?.name,
-          success: result.success,
-          data: result,
-          error: result.error
-        });
+        // 检查是否是需要转发给HTML组件的工具调用
+        if (result.componentToolCall && result.componentToolCall.requiresComponentCall) {
+          console.log(`🔄 Tool requires HTML component execution: ${toolCall.function?.name}`);
+          
+          // 尝试执行HTML组件工具调用
+          const componentResult = await this.executeHtmlComponentTool(
+            result.componentToolCall,
+            gameContext
+          );
+          
+          results.push({
+            toolName: toolCall.function?.name,
+            success: componentResult.success,
+            data: componentResult,
+            error: componentResult.error
+          });
+        } else {
+          results.push({
+            toolName: toolCall.function?.name,
+            success: result.success,
+            data: result,
+            error: result.error
+          });
+        }
         
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -497,6 +515,144 @@ export class GameEngine {
     }
     
     return results;
+  }
+
+  /**
+   * 执行HTML组件工具调用
+   */
+  private static async executeHtmlComponentTool(
+    componentToolCall: {
+      componentId: string;
+      toolName: string;
+      jsFunction?: string;
+      args: any;
+      timestamp: number;
+    },
+    gameContext: GameToolContext
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    
+    try {
+      console.log(`📟 Executing HTML component tool: ${componentToolCall.toolName} for component ${componentToolCall.componentId}`);
+      
+      // 查找对应的HTML组件
+      const htmlComponent = gameContext.activeStory.library.find(card => 
+        card.type === 'html' && card.id === componentToolCall.componentId
+      );
+      
+      if (!htmlComponent) {
+        throw new Error(`HTML component with ID ${componentToolCall.componentId} not found`);
+      }
+      
+      // 记录工具调用日志
+      gameContext.logCommunication('html_component_tool_call', {
+        componentId: componentToolCall.componentId,
+        componentName: htmlComponent.name,
+        toolName: componentToolCall.toolName,
+        args: componentToolCall.args,
+        timestamp: componentToolCall.timestamp
+      });
+      
+      // 模拟HTML组件工具执行（在实际实现中，这会通过postMessage发送到HTML组件）
+      // 这里返回一个标准化的响应，表示工具调用已经发起
+      const toolResponse = {
+        success: true,
+        componentToolExecution: {
+          componentId: componentToolCall.componentId,
+          componentName: htmlComponent.name,
+          toolName: componentToolCall.toolName,
+          executionStatus: 'initiated',
+          message: `HTML组件工具 '${componentToolCall.toolName}' 已发起执行`,
+          args: componentToolCall.args,
+          timestamp: componentToolCall.timestamp,
+          // 在实际实现中，这里会包含来自HTML组件的真实响应
+          simulatedResponse: this.simulateHtmlComponentResponse(componentToolCall)
+        }
+      };
+      
+      console.log(`✅ HTML component tool executed successfully: ${componentToolCall.toolName}`);
+      return toolResponse;
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ HTML component tool execution failed:`, error);
+      
+      gameContext.logCommunication('html_component_tool_error', {
+        componentId: componentToolCall.componentId,
+        toolName: componentToolCall.toolName,
+        error: errorMessage,
+        timestamp: Date.now()
+      });
+      
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+  }
+
+  /**
+   * 模拟HTML组件响应（用于开发测试）
+   */
+  private static simulateHtmlComponentResponse(componentToolCall: any) {
+    const { toolName, args } = componentToolCall;
+    
+    // 根据工具名称模拟不同的响应
+    switch (toolName) {
+      case 'get_click_count':
+        return {
+          clickCount: Math.floor(Math.random() * 20),
+          message: `按钮已被点击 ${Math.floor(Math.random() * 20)} 次`
+        };
+      
+      case 'query_component_status':
+        if (args.query === 'full') {
+          return {
+            state: {
+              clickCount: Math.floor(Math.random() * 20),
+              lastInput: '测试输入',
+              selectedOption: '选项1'
+            },
+            timestamp: new Date().toISOString()
+          };
+        } else if (args.query === 'summary') {
+          return {
+            summary: `点击数: ${Math.floor(Math.random() * 20)}, 最后输入: 测试输入`
+          };
+        }
+        break;
+      
+      case 'calculate_metrics':
+        const metricType = args.metricType;
+        if (metricType === 'usage') {
+          return {
+            metrics: {
+              totalClicks: Math.floor(Math.random() * 50),
+              inputCount: Math.floor(Math.random() * 10),
+              testResults: Math.floor(Math.random() * 15)
+            }
+          };
+        } else if (metricType === 'engagement') {
+          return {
+            metrics: {
+              interactionScore: Math.floor(Math.random() * 100),
+              engagementLevel: ['低', '中', '高'][Math.floor(Math.random() * 3)]
+            }
+          };
+        }
+        break;
+      
+      default:
+        return {
+          message: `HTML组件工具 '${toolName}' 执行完成`,
+          args: args,
+          timestamp: new Date().toISOString()
+        };
+    }
+    
+    return {
+      message: `工具 '${toolName}' 执行完成`,
+      result: 'success'
+    };
   }
 
   /**

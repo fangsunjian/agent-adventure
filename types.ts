@@ -134,7 +134,7 @@ export interface Memories {
 
 export type Page = 'home' | 'explore' | 'profile' | 'game';
 
-export type LibraryCardType = 'character' | 'location' | 'item' | 'quest' | 'setting' | 'custom' | 'map';
+export type LibraryCardType = 'character' | 'location' | 'item' | 'quest' | 'setting' | 'custom' | 'map' | 'html';
 
 export interface MapLocation {
   id: string;
@@ -142,6 +142,21 @@ export interface MapLocation {
   y: number;  // Y coordinate on the map (0-1000 scale)
   name: string;
   description: string;
+}
+
+export interface HtmlToolDefinition {
+  name: string;
+  description: string;
+  parameters: any;
+  jsFunction: string; // 对应的JS函数名
+}
+
+export interface HtmlComponentData {
+  html: string;
+  css: string;
+  js: string;
+  toolDefinitions?: HtmlToolDefinition[]; // AI工具定义
+  previewUrl?: string; // 运行时预览URL
 }
 
 export interface LibraryCard {
@@ -154,6 +169,8 @@ export interface LibraryCard {
   // Map-specific fields
   mapImageUrl?: string;
   mapLocations?: MapLocation[];
+  // HTML component-specific fields
+  htmlData?: HtmlComponentData;
 }
 
 // This type represents the data structure used within the React app (camelCase)

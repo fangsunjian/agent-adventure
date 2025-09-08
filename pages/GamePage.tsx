@@ -6,6 +6,7 @@ import DialogueModal from '../components/DialogueModal';
 import { ArrowLeftIcon, BookIcon, BugIcon, CloseIcon, MapIcon, RegenerateIcon as RestartIcon, SlidersIcon } from '../components/icons';
 import GameSettingsPanel from '../components/LLMSettingsPanel';
 import MapViewerModal from '../components/MapViewerModal';
+import HtmlComponentViewer from '../components/HtmlComponentViewer';
 import PlaceholderInputModal from '../components/PlaceholderInputModal';
 import Resizer from '../components/Resizer';
 import SceneDisplay from '../components/SceneDisplay';
@@ -13,6 +14,7 @@ import SummaryPanel from '../components/SummaryPanel';
 import { simpleUUID, translations } from '../constants';
 import { evaluateAndGenerateMilestone, generateImage, getNextSceneWithGameEngine, getNextSceneWithTools, type ToolHandler } from '../services/aiService';
 import { GameEngine } from '../services/GameEngine';
+import { GameToolRegistry } from '../services/GameToolRegistry';
 import type { DebugLogEntry, DetectedPlaceholder, GameSettings, HistoryItem, Memories, Playthrough, Scene, SceneFragment, Story } from '../types';
 import { GameStatus } from '../types';
 
@@ -64,6 +66,8 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const [isPlaceholderModalOpen, setIsPlaceholderModalOpen] = useState(false);
   const [isMapViewerOpen, setIsMapViewerOpen] = useState(false);
   const [currentMapIndex, setCurrentMapIndex] = useState(0);
+  const [isHtmlComponentViewerOpen, setIsHtmlComponentViewerOpen] = useState(false);
+  const [selectedHtmlComponent, setSelectedHtmlComponent] = useState<LibraryCard | null>(null);
   const [detectedPlaceholders, setDetectedPlaceholders] = useState<DetectedPlaceholder[]>([]);
   const [lastPlaceholderValues, setLastPlaceholderValues] = useState<Record<string, string>>(() => {
     // Initialize with values from playthrough if available
@@ -138,10 +142,141 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   // Detect maps in the story
   const storyMaps = processedStory?.library.filter(card => card.type === 'map' && card.mapImageUrl) || [];
   const hasMapButton = storyMaps.length > 0;
+  
+  // Detect HTML components in the story
+  const storyHtmlComponents = processedStory?.library.filter(card => card.type === 'html' && card.htmlData) || [];
+  const hasHtmlComponents = storyHtmlComponents.length > 0;
 
   const logCommunication = useCallback((type: string, data: any) => {
     setCommunicationsLog(prev => [...prev, { type, data, timestamp: new Date().toISOString() }]);
   }, []);
+
+  // 暴露调试和测试用的全局变量
+  useEffect(() => {
+    (window as any).GameToolRegistry = GameToolRegistry;
+    
+    // 从gameState构建memories对象
+    const memoriesFromState = {
+      summaries: gameState.summaries || [],
+      grandSummaries: gameState.grandSummaries || [],
+      milestoneSummaries: gameState.milestoneSummaries || [],
+    };
+    
+    (window as any).gameData = {
+      activeStory: gameState.activeStory,
+      settings: settings,
+      memories: memoriesFromState,
+      gameState: gameState
+    };
+    
+    // 暴露测试工具函数到外部页面
+    (window as any).testAIToolCall = async function(toolName: string, args: any = {}) {
+      console.log(`🤖 测试AI工具调用: ${toolName}`);
+      
+      // 创建模拟的工具调用
+      const mockToolCall = {
+        function: {
+          name: toolName,
+          arguments: JSON.stringify(args)
+        }
+      };
+      
+      // 创建模拟的游戏上下文
+      const mockContext = {
+        settings: settings,
+        history: [],
+        memories: memoriesFromState,
+        activeStory: gameState.activeStory,
+        logCommunication: (type: string, data: any) => console.log(`📋 ${type}:`, data)
+      };
+      
+      try {
+        const result = await GameToolRegistry.executeTool(mockToolCall, mockContext);
+        console.log(`✅ 工具执行结果:`, result);
+        return result;
+      } catch (error) {
+        console.error(`❌ 工具执行失败:`, error);
+        return { success: false, error: error.message };
+      }
+    };
+
+    // 暴露组件工具查询函数
+    (window as any).listComponentTools = function(componentId?: string) {
+      console.log('🔍 调试信息:');
+      console.log('  - gameState.activeStory:', !!gameState.activeStory);
+      console.log('  - library存在:', !!gameState.activeStory?.library);
+      console.log('  - library长度:', gameState.activeStory?.library?.length || 0);
+      
+      const allLibraryCards = gameState.activeStory?.library || [];
+      console.log('  - 所有卡片类型:', allLibraryCards.map(card => ({ id: card.id, type: card.type, name: card.name })));
+      
+      if (!componentId) {
+        // 如果没有指定组件ID，查找所有HTML组件
+        const htmlComponents = allLibraryCards.filter(card => card.type === 'html');
+        console.log('  - HTML组件数量:', htmlComponents.length);
+        console.log('  - HTML组件详情:', htmlComponents.map(c => ({ id: c.id, name: c.name, hasHtmlData: !!c.htmlData })));
+        
+        if (htmlComponents.length === 0) {
+          console.log('❌ 未找到HTML组件');
+          return [];
+        }
+        componentId = htmlComponents[0].id; // 使用第一个HTML组件
+        console.log(`📋 使用组件ID: ${componentId}`);
+      }
+      
+      const tools = GameToolRegistry.getHtmlComponentTools(componentId);
+      console.log(`📋 组件 ${componentId} 的工具列表:`, tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        priority: t.priority
+      })));
+      return tools;
+    };
+
+    // 便捷的工具查看函数
+    (window as any).listAllTools = function() {
+      const stats = GameToolRegistry.getToolStatistics();
+      console.log('📊 所有工具统计:', stats);
+      console.log('🛠️ HTML组件工具:', stats.tools.filter(t => t.source === 'html_component'));
+      
+      // 额外调试信息
+      console.log('🔍 工具源分析:', stats.toolsBySource);
+      console.log('🔍 所有工具名称:', stats.tools.map(t => t.name));
+      
+      return stats;
+    };
+
+    // 添加调试函数检查工具注册状态
+    (window as any).debugToolRegistry = function() {
+      console.log('🔍 GameToolRegistry调试:');
+      console.log('  - 总工具数:', GameToolRegistry.getToolStatistics().totalTools);
+      console.log('  - 工具健康状态:', GameToolRegistry.getToolHealth());
+      
+      // 尝试查看所有已注册的工具
+      const allTools = GameToolRegistry.getTools();
+      console.log('  - 所有已注册工具:', allTools.map(t => ({ 
+        name: t.name, 
+        description: t.description.substring(0, 50) + '...'
+      })));
+      
+      return allTools;
+    };
+
+    console.log('🛠️ 外部测试工具已准备好：');
+    console.log('  - testAIToolCall(toolName, args) - 测试AI工具调用');
+    console.log('  - listComponentTools(componentId?) - 查看已注册的工具');
+    console.log('  - listAllTools() - 查看所有工具统计');
+    console.log('  - debugToolRegistry() - 调试工具注册状态');
+    console.log('  - GameToolRegistry.getToolStatistics() - 查看工具统计');
+    console.log('  - GameToolRegistry.getToolHealth() - 查看工具健康状态');
+    
+    if (showDebug) {
+      (window as any).debugGameState = gameState;
+      (window as any).debugSettings = settings;
+      (window as any).debugMemories = memoriesFromState;
+      (window as any).debugLogCommunication = logCommunication;
+    }
+  }, [gameState, settings, logCommunication]);
 
   const startNewSession = useCallback((story: Story, userName?: string, charName?: string) => {
     // 重置GameEngine会话状态（包括LLM提供商检测）
@@ -632,6 +767,206 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     }));
   }, [gameState.dialogue]);
 
+  // HTML组件消息处理 - 用于响应iframe中的组件消息  
+  const handleHtmlComponentMessage = useCallback(async (action: string, payload: any, callId: string, sourceWindow: Window) => {
+    logCommunication('html_component_message', { action, payload, callId });
+
+    // 直接使用消息来源窗口进行响应
+    if (!sourceWindow) {
+      console.error('HTML组件消息源窗口不可用');
+      return;
+    }
+
+    try {
+      let responsePayload: any;
+      let responseAction: string;
+
+      switch (action) {
+        case 'AI_REQUEST':
+          console.log('🤖 收到AI请求:', payload.prompt, 'callId:', callId);
+          // 转发AI请求到游戏引擎 (暂时返回模拟响应)
+          responsePayload = `🤖 模拟AI响应: ${payload.prompt}\n\n作为一个友好的AI助手，我很高兴为你提供帮助！你的请求已经被成功处理。这是HTML组件与游戏引擎通信的测试响应。\n\n当前时间: ${new Date().toLocaleString()}`;
+          responseAction = 'AI_RESPONSE';
+          console.log('🤖 准备发送AI响应, callId:', callId, 'responsePayload:', responsePayload);
+          logCommunication('ai_mock_response', { prompt: payload.prompt, response: responsePayload, callId });
+          break;
+          
+        case 'SAVE_DATA':
+          // 组件数据持久化
+          localStorage.setItem(`html_component_${payload.key}`, JSON.stringify(payload.data));
+          responseAction = 'SAVE_SUCCESS';
+          responsePayload = { success: true };
+          logCommunication('html_component_save', { key: payload.key, data: payload.data });
+          break;
+          
+        case 'LOAD_DATA':
+          // 加载组件数据
+          const data = localStorage.getItem(`html_component_${payload.key}`);
+          const loadedData = data ? JSON.parse(data) : null;
+          responseAction = 'LOAD_SUCCESS';
+          responsePayload = loadedData;
+          logCommunication('html_component_load', { key: payload.key, data: loadedData });
+          break;
+          
+        case 'GAME_DATA':
+          // 处理游戏数据
+          logCommunication('html_component_game_data', payload);
+          // 对于game data，不需要响应
+          break;
+
+        case 'REGISTER_TOOL':
+          // 处理AI工具注册
+          console.log('🛠️ 收到工具注册请求:', payload);
+          try {
+            const toolName = GameToolRegistry.dynamicRegisterHtmlComponentTool(
+              payload.componentId,
+              {
+                name: payload.name,
+                description: payload.description,
+                parameters: payload.parameters,
+                jsFunction: payload.jsFunction
+              }
+            );
+            
+            responseAction = 'REGISTER_SUCCESS';
+            responsePayload = { 
+              success: true, 
+              toolName: toolName,
+              message: `工具 '${payload.name}' 已成功注册`
+            };
+            logCommunication('html_component_tool_registered', { 
+              componentId: payload.componentId, 
+              toolName: toolName 
+            });
+            
+          } catch (error) {
+            responseAction = 'REGISTER_ERROR';
+            responsePayload = { 
+              success: false, 
+              error: error.message 
+            };
+            logCommunication('html_component_tool_register_error', { 
+              componentId: payload.componentId, 
+              toolName: payload.name,
+              error: error.message 
+            });
+          }
+          break;
+
+        case 'UNREGISTER_TOOL':
+          // 处理AI工具取消注册
+          console.log('🗑️ 收到工具取消注册请求:', payload);
+          try {
+            const success = GameToolRegistry.dynamicUnregisterHtmlComponentTool(
+              payload.componentId,
+              payload.name
+            );
+            
+            responseAction = 'UNREGISTER_SUCCESS';
+            responsePayload = { 
+              success: success, 
+              message: success 
+                ? `工具 '${payload.name}' 已成功取消注册`
+                : `工具 '${payload.name}' 未找到或取消注册失败`
+            };
+            logCommunication('html_component_tool_unregistered', { 
+              componentId: payload.componentId, 
+              toolName: payload.name,
+              success 
+            });
+            
+          } catch (error) {
+            responseAction = 'UNREGISTER_ERROR';
+            responsePayload = { 
+              success: false, 
+              error: error.message 
+            };
+            logCommunication('html_component_tool_unregister_error', { 
+              componentId: payload.componentId, 
+              toolName: payload.name,
+              error: error.message 
+            });
+          }
+          break;
+
+        case 'LIST_TOOLS':
+          // 处理工具列表查询
+          console.log('📋 收到工具列表查询请求:', payload);
+          try {
+            const componentTools = GameToolRegistry.getHtmlComponentTools(payload.componentId);
+            const toolList = componentTools.map(tool => ({
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters
+            }));
+            
+            responseAction = 'LIST_SUCCESS';
+            responsePayload = { 
+              success: true, 
+              tools: toolList,
+              count: toolList.length
+            };
+            logCommunication('html_component_tools_listed', { 
+              componentId: payload.componentId, 
+              toolCount: toolList.length 
+            });
+            
+          } catch (error) {
+            responseAction = 'LIST_ERROR';
+            responsePayload = { 
+              success: false, 
+              error: error.message 
+            };
+            logCommunication('html_component_tools_list_error', { 
+              componentId: payload.componentId, 
+              error: error.message 
+            });
+          }
+          return;
+          
+        case 'LOG_MESSAGE':
+          // 记录组件日志
+          logCommunication('html_component_log', payload);
+          // 日志消息不需要响应
+          return;
+          
+        default:
+          console.warn('未知的HTML组件消息类型:', action);
+          responseAction = 'ERROR_RESPONSE';
+          responsePayload = { error: `未知的消息类型: ${action}` };
+      }
+
+      // 发送响应消息
+      if (responseAction) {
+        console.log('📤 发送响应消息:', { action: responseAction, callId, payloadType: typeof responsePayload });
+        sourceWindow.postMessage({ 
+          action: responseAction, 
+          payload: responsePayload, 
+          callId 
+        }, '*');
+        
+        logCommunication('html_component_response_sent', { 
+          action: responseAction, 
+          callId,
+          payloadType: typeof responsePayload 
+        });
+        console.log('✅ 响应消息已发送');
+      }
+
+    } catch (error) {
+      console.error('处理HTML组件消息时出错:', error);
+      
+      // 发送错误响应
+      sourceWindow.postMessage({ 
+        action: 'ERROR_RESPONSE', 
+        payload: { error: error.message }, 
+        callId 
+      }, '*');
+      
+      logCommunication('html_component_error', { error: error.message, callId });
+    }
+  }, [logCommunication]);
+
   const handleDialogueComplete = useCallback(() => {
     if (!gameState.dialogue) return;
     
@@ -769,6 +1104,21 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                             )}
                         </button>
                     )}
+                    {hasHtmlComponents && (
+                        <button
+                            onClick={() => {
+                                if (storyHtmlComponents.length > 0) {
+                                    setSelectedHtmlComponent(storyHtmlComponents[0]);
+                                    setIsHtmlComponentViewerOpen(true);
+                                }
+                            }}
+                            className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors"
+                            aria-label="查看HTML组件"
+                            title="查看HTML组件"
+                        >
+                            <i className="fas fa-code w-5 h-5"></i>
+                        </button>
+                    )}
                     {showDebug && (
                     <>
                     <button onClick={() => setIsDebugPanelOpen(true)} disabled={gameState.history.length === 0} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed" aria-label={t.debugLog}>
@@ -903,6 +1253,18 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
                     onMapChange={setCurrentMapIndex}
                     playerLocation={gameState.playerLocation}
                     language={settings.language}
+                />
+            )}
+
+            {hasHtmlComponents && (
+                <HtmlComponentViewer
+                    isOpen={isHtmlComponentViewerOpen}
+                    onClose={() => {
+                        setIsHtmlComponentViewerOpen(false);
+                        setSelectedHtmlComponent(null);
+                    }}
+                    component={selectedHtmlComponent}
+                    onMessage={handleHtmlComponentMessage}
                 />
             )}
         </div>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import type { LibraryCard, LibraryCardType, Language, MapLocation } from '../types';
+import type { LibraryCard, LibraryCardType, Language, MapLocation, HtmlComponentData } from '../types';
 import { translations, simpleUUID } from '../constants';
 import ConfirmationDialog from './ConfirmationDialog';
 import { CloseIcon, TrashIcon } from './icons';
+import HtmlComponentEditor from './HtmlComponentEditor';
 
 interface LibraryCardEditorModalProps {
   card: LibraryCard | null;
@@ -21,6 +22,7 @@ const createNewCard = (): LibraryCard => ({
   customTypeName: '',
   mapImageUrl: '',
   mapLocations: [],
+  htmlData: { html: '', css: '', js: '' },
 });
 
 // Location Edit Modal Component
@@ -462,7 +464,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
     }
   };
   
-  const cardTypes: LibraryCardType[] = ['character', 'location', 'item', 'quest', 'setting', 'custom', 'map'];
+  const cardTypes: LibraryCardType[] = ['character', 'location', 'item', 'quest', 'setting', 'custom', 'map', 'html'];
   const typeTranslations: Record<LibraryCardType, string> = {
     character: t.cardTypeCharacter,
     location: t.cardTypeLocation,
@@ -471,6 +473,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
     setting: t.cardTypeSetting,
     custom: t.cardTypeCustom,
     map: t.cardTypeMap,
+    html: t.cardTypeHtml,
   };
 
   return (
@@ -780,6 +783,19 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+            {currentCard.type === 'html' && (
+                <div className="pt-2">
+                    <HtmlComponentEditor
+                        htmlData={currentCard.htmlData || { html: '', css: '', js: '' }}
+                        onChange={(htmlData: HtmlComponentData) => {
+                            setCurrentCard(prev => ({
+                                ...prev,
+                                htmlData
+                            }));
+                        }}
+                    />
                 </div>
             )}
             <div>
