@@ -1,6 +1,6 @@
-import React, { useRef, useEffect, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import React, { useEffect, useRef, useState } from 'react';
 import { MaximizeIcon, MinimizeIcon } from './icons';
 
 interface MonacoEditorComponentProps {
@@ -302,6 +302,9 @@ const MonacoEditorComponent: React.FC<MonacoEditorComponentProps> = ({
         .monaco-editor {
           height: 100% !important;
           overflow: hidden !important;
+          border: none !important;
+          outline: none !important;
+          box-shadow: none !important;
         }
         
         .monaco-editor .overflow-guard {
