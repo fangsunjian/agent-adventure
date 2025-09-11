@@ -36,7 +36,7 @@ const MonacoEditorComponent: React.FC<MonacoEditorComponentProps> = ({
     minimap: {
       enabled: isFullscreen
     },
-    automaticLayout: false,
+    automaticLayout: true,
     folding: true,
     lineNumbers: 'on',
     renderWhitespace: 'selection',
@@ -232,35 +232,11 @@ const MonacoEditorComponent: React.FC<MonacoEditorComponentProps> = ({
       editorRef.current.updateOptions({
         minimap: { enabled: isFullscreen }
       });
-      // 触发布局更新
-      setTimeout(() => {
-        editorRef.current?.layout();
-      }, 100);
     }
   }, [isFullscreen]);
 
-  // 添加resize监听器来手动触发布局更新
-  useEffect(() => {
-    const handleResize = () => {
-      if (editorRef.current) {
-        editorRef.current.layout();
-      }
-    };
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
-  // 定期布局更新以确保编辑器正确显示
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (editorRef.current && isEditorReady) {
-        editorRef.current.layout();
-      }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [isEditorReady]);
 
   return (
     <div className={`relative flex flex-col ${isFullscreen ? 'fixed inset-0 z-50 bg-white dark:bg-zinc-900' : 'h-full'}`}>
@@ -296,14 +272,14 @@ const MonacoEditorComponent: React.FC<MonacoEditorComponentProps> = ({
       </div>
 
       {/* Monaco Editor */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <Editor
           language={language}
           value={value}
           onChange={handleChange}
           onMount={handleEditorDidMount}
           options={editorOptions}
-          height="100%"
+          height="calc(100% - 0px)"
           loading={
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -322,13 +298,14 @@ const MonacoEditorComponent: React.FC<MonacoEditorComponentProps> = ({
           font-style: italic;
         }
         
-        /* 修复Monaco Editor高度问题 */
+        /* Monaco Editor基础样式 */
         .monaco-editor {
           height: 100% !important;
+          overflow: hidden !important;
         }
         
         .monaco-editor .overflow-guard {
-          position: relative !important;
+          height: 100% !important;
         }
         
         /* 确保滚动条可见 */

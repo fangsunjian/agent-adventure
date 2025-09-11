@@ -510,10 +510,10 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
               </button>
             </div>
           </header>
-          <div className={`overflow-y-auto ${
+          <div className={`${
             isFullscreen && currentCard.type === 'html' 
-              ? 'flex-grow p-4' 
-              : 'p-6 space-y-4'
+              ? 'flex-grow p-4 overflow-hidden' 
+              : 'p-6 space-y-4 overflow-y-auto'
           }`}>
             {!(isFullscreen && currentCard.type === 'html') && (
               <>

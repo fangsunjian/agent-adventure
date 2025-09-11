@@ -732,9 +732,9 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
 
   return (
     <div className={isFullscreen ? 'h-full flex flex-col' : 'space-y-4'}>
-      <div className={`grid gap-4 ${isFullscreen ? 'grid-cols-1 xl:grid-cols-2 flex-grow' : 'grid-cols-1 lg:grid-cols-2 h-96'}`}>
+      <div className={`${isFullscreen ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 flex-grow min-h-0' : 'flex flex-col gap-4'}`}>
         {/* Monaco 代码编辑器 */}
-        <div className="bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden">
+        <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'}`}>
           {/* 标签页 */}
           <div className="flex bg-gray-200 dark:bg-zinc-900">
             {(['html', 'css', 'js'] as EditorTab[]).map(tab => (
@@ -767,7 +767,7 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
         </div>
 
         {/* 预览区 */}
-        <div className="bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden">
+        <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'}`}>
           <div className="bg-gray-200 dark:bg-zinc-900 p-2 flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-2">
               <i className="fas fa-eye"></i>
