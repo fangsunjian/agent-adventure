@@ -238,10 +238,13 @@ const CreatePage: React.FC = () => {
     };
 
     const markCardDirty = (cardId: string, isDirty: boolean) => {
-        setCardDirtyStates(prev => ({
-            ...prev,
-            [cardId]: isDirty
-        }));
+        setCardDirtyStates(prev => {
+            if (prev[cardId] === isDirty) return prev;
+            return {
+                ...prev,
+                [cardId]: isDirty
+            };
+        });
     };
 
     // Add Card Modal Component
