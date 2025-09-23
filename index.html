@@ -12,20 +12,6 @@
     <meta name="theme-color" content="#18181b" />
 
     <title>Gemini Adventure</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              serif: ['EB Garamond', 'serif'],
-            },
-          },
-        },
-      }
-    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Inter:wght@400;500;70ax_0..900&display=swap" rel="stylesheet">
@@ -48,10 +34,21 @@
 <style>
     /* Prevent pull-to-refresh and ensure full height on mobile */
     html, body, #root {
-      height: 100dvh;
+      height: 100vh; /* Fallback for older browsers */
+      height: 100dvh; /* Dynamic viewport height for modern browsers */
+      min-height: 100vh; /* Ensure minimum height */
+      min-height: 100dvh;
     }
+
     body {
-      overflow: hidden; /* This prevents pull-to-refresh and bouncing scroll */
+      overflow: hidden; /* Prevents pull-to-refresh and bouncing scroll */
+      position: fixed; /* Ensure body stays fixed for mobile */
+      width: 100%;
+    }
+
+    #root {
+      overflow: hidden; /* Ensure root container doesn't scroll */
+      position: relative;
     }
     /* Custom Scrollbar Styling */
     ::-webkit-scrollbar {

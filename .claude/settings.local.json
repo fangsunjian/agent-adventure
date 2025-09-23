@@ -12,7 +12,10 @@
       "Bash(git push:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\mcp\\gemini-mcp"
+    ]
   },
   "outputStyle": "default"
 }

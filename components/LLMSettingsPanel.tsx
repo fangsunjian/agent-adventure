@@ -19,7 +19,7 @@ const GameSettingsPanel: React.FC<{
 
     const handleLLMChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type } = e.target;
-        
+
         let parsedValue: string | number | boolean;
         if (type === 'number' || type === 'range') {
             parsedValue = parseFloat(value);
@@ -28,10 +28,10 @@ const GameSettingsPanel: React.FC<{
         } else {
             parsedValue = value;
         }
-        
+
         onSettingsChange({
             ...settings,
-            llm: { ...settings.llm, [name]: parsedValue }
+            llm: { ...(settings.llm || {}), [name]: parsedValue }
         });
     };
     
@@ -93,7 +93,7 @@ const GameSettingsPanel: React.FC<{
         <div>
             <label htmlFor={name} className="block text-sm font-medium text-gray-600 dark:text-zinc-400 flex justify-between">
                 <span>{label}</span>
-                <span>{settings.llm[name]}</span>
+                <span>{settings.llm?.[name] ?? min}</span>
             </label>
             <input
                 id={name}
@@ -102,7 +102,7 @@ const GameSettingsPanel: React.FC<{
                 min={min}
                 max={max}
                 step={step}
-                value={settings.llm[name] ?? min}
+                value={settings.llm?.[name] ?? min}
                 onChange={handleLLMChange}
                 className="w-full h-2 bg-gray-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
@@ -193,7 +193,7 @@ const GameSettingsPanel: React.FC<{
                                 <select
                                     id="reasoningEffort"
                                     name="reasoningEffort"
-                                    value={settings.llm.reasoningEffort || 'medium'}
+                                    value={settings.llm?.reasoningEffort || 'medium'}
                                     onChange={handleLLMChange}
                                     className="block w-full pl-3 pr-10 py-2 text-base bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                                 >
@@ -216,7 +216,7 @@ const GameSettingsPanel: React.FC<{
                                     id="autoMaxTokens"
                                     name="autoMaxTokens"
                                     type="checkbox"
-                                    checked={!!settings.llm.autoMaxTokens}
+                                    checked={!!settings.llm?.autoMaxTokens}
                                     onChange={handleLLMChange}
                                     className="h-4 w-4 text-indigo-600 bg-gray-200 dark:bg-zinc-700 border-gray-300 dark:border-zinc-600 rounded focus:ring-indigo-500"
                                 />
@@ -226,14 +226,14 @@ const GameSettingsPanel: React.FC<{
                                 type="number"
                                 id="maxOutputTokens"
                                 name="maxOutputTokens"
-                                value={settings.llm.maxOutputTokens || 2048}
+                                value={settings.llm?.maxOutputTokens || 2048}
                                 onChange={handleLLMChange}
-                                disabled={!!settings.llm.autoMaxTokens}
+                                disabled={!!settings.llm?.autoMaxTokens}
                                 className="mt-1 block w-full bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
                             />
-                            {settings.llm.autoMaxTokens && settings.llm.fetchedMaxTokens != null && (
+                            {settings.llm?.autoMaxTokens && settings.llm?.fetchedMaxTokens != null && (
                                 <p className="text-xs text-gray-500 dark:text-zinc-400 mt-1">
-                                    {t.fetchedTokens} {settings.llm.fetchedMaxTokens}
+                                    {t.fetchedTokens} {settings.llm?.fetchedMaxTokens}
                                 </p>
                             )}
                         </div>

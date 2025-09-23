@@ -40,17 +40,17 @@ const GracefulImage: React.FC<{ src: string; alt: string; className: string }> =
 
 const StoryCard: React.FC<{ story: Story }> = ({ story }) => {
   return (
-    <div className="flex bg-white dark:bg-zinc-900 rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-zinc-800 hover:shadow-lg hover:border-indigo-500/50 dark:hover:border-indigo-500/50 transition-all duration-300">
+    <div className="flex flex-col bg-white dark:bg-zinc-900 rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-zinc-800 hover:shadow-lg hover:border-indigo-500/50 dark:hover:border-indigo-500/50 transition-all duration-300 h-60 sm:h-64 md:h-72">
       <GracefulImage
         src={story.coverImageUrl}
         alt={`Cover for ${story.title}`}
-        className="w-24 h-32 md:w-32 md:h-40 object-cover flex-shrink-0"
+        className="w-full h-36 sm:h-40 md:h-48 object-cover flex-shrink-0"
       />
-      <div className="p-4 flex flex-col justify-between">
-        <div>
-          <h3 className="text-lg font-bold font-serif text-gray-800 dark:text-zinc-200">{story.title}</h3>
-          <p className="text-sm text-gray-500 dark:text-zinc-400 mb-2">by {story.creatorName}</p>
-          <p className="text-sm text-gray-600 dark:text-zinc-300 line-clamp-2">{story.description}</p>
+      <div className="p-3 flex flex-col flex-1 min-w-0">
+        <div className="space-y-2">
+          <h3 className="text-sm md:text-base font-bold font-serif text-gray-800 dark:text-zinc-200 line-clamp-2 leading-tight">{story.title}</h3>
+          <p className="text-xs text-gray-500 dark:text-zinc-400 line-clamp-1">by {story.creatorName}</p>
+          <p className="text-xs text-gray-600 dark:text-zinc-300 line-clamp-2 leading-relaxed">{story.description}</p>
         </div>
       </div>
     </div>

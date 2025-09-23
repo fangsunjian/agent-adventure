@@ -1,6 +1,64 @@
-/* This file is created to resolve a build and runtime error. You can add global styles here if needed. */
+@import "tailwindcss";
 
-/* Responsive Bottom Navigation and Content Padding */
+/* CSS Variables for shadcn/ui theming */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 9% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 10% 3.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+}
+
+/* Layout and Spacing Classes */
 .bottom-nav-wrapper {
   /* Adds a 1rem gap from the bottom of the viewport, plus accounts for the device's home bar / safe area. */
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
@@ -8,10 +66,29 @@
 
 .main-content-area {
   /*
+    Calculates top padding to prevent content from being hidden by the fixed top header.
+    - 4rem: height of the TopHeader (h-16)
+    - env(safe-area-inset-top): safe area for devices with notches/dynamic island
+  */
+  padding-top: calc(4rem + env(safe-area-inset-top, 0px));
+
+  /*
     Calculates bottom padding to prevent content from being hidden by the fixed bottom nav bar.
     - 4rem: height of the nav bar (h-16)
     - 1rem: bottom gap from .bottom-nav-wrapper's padding
     - 0.75rem: extra buffer space for better visual separation
   */
   padding-bottom: calc(4rem + 1rem + 0.75rem + env(safe-area-inset-bottom)); /* Total: 5.75rem */
+
+  /* Ensure proper scrolling behavior in flex layout */
+  min-height: 0; /* Important for flex items to allow shrinking */
 }
+
+/* Utility class for flex layouts that need proper height calculation */
+.flex-container-full-height {
+  height: 100vh; /* Fallback */
+  height: 100dvh; /* Dynamic viewport height */
+  display: flex;
+  flex-direction: column;
+}
+

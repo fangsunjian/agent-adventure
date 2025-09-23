@@ -1,10 +1,11 @@
 # Agent Adventure
 
 **Last Updated: 2025-01-28**
+**🚀 当前状态: 准备开始重构V2 - 桌面级现代化升级**
 
 Agent Adventure 是一个由 AI 驱动的动态文字冒险游戏社区平台。该应用使用 Google Gemini 生成叙述内容和 Imagen 生成插图，为用户创造独特且沉浸式的故事体验。
 
-从最初的单人游戏发展为社区驱动的平台，用户可以创建丰富的交互式故事，与他人分享，并体验社区创作的冒险内容。
+项目目前正准备进行大规模重构，从移动端优先的应用升级为**现代化的桌面级全栈应用**，采用最新的 React 生态系统最佳实践。
 
 ## 项目概述
 
@@ -112,6 +113,29 @@ agent-adventure/
 **Library Cards（资料卡）**
 - 类型：角色、地点、道具、任务、设定、自定义
 - 内容：名称、描述、关键词、AI 指令
+
+## 🚀 重构计划 V2 (2025-01-28)
+
+### 重构目标
+基于 [Gemini 项目分析结果](./重构计划V2.md)，将 Agent Adventure 重构为现代化的桌面级应用：
+
+**目标技术栈：**
+- **Frontend**: React + TypeScript + Vite (保持)
+- **Styling**: Tailwind CSS (从CDN迁移到构建流程)
+- **State Management**: TanStack Query (React Query) + Zustand
+- **UI Components**: shadcn/ui (基于 Radix UI)
+- **AI SDKs**: Vercel AI SDK (支持多providers)
+- **PWA**: Vite PWA plugin
+- **Quality Control**: Storybook + Testing
+
+**核心改进：**
+- ✅ 从移动端优先升级到桌面级体验
+- ✅ 现代化状态管理替代Props drilling
+- ✅ 专业UI组件库和设计系统
+- ✅ 性能优化和包体积优化
+- ✅ 完整的开发工具链和质量控制
+
+📋 [查看详细重构计划](./重构计划V2.md)
 
 ## 最新开发进展
 
