@@ -11,6 +11,7 @@ interface LibraryCardEditorModalProps {
   onDelete: (cardId: string) => void;
   onClose: () => void;
   language: Language;
+  onChange?: (card: LibraryCard) => void; // Optional onChange callback for content changes
 }
 
 const createNewCard = (): LibraryCard => ({
@@ -136,7 +137,7 @@ const LocationEditModal: React.FC<LocationEditModalProps> = ({ isOpen, location,
   );
 };
 
-const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language }) => {
+const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language, onChange }) => {
   const t = translations[language];
   const [currentCard, setCurrentCard] = useState<LibraryCard>(card ? JSON.parse(JSON.stringify(card)) : createNewCard());
   const [isDirty, setIsDirty] = useState(false);
@@ -165,6 +166,16 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   
   // Location display options
   const [showLocationLabels, setShowLocationLabels] = useState(false);
+
+  // Helper function to update card and trigger onChange
+  const updateCard = (updater: (prev: LibraryCard) => LibraryCard) => {
+    setCurrentCard(prev => {
+      const newCard = updater(prev);
+      onChange?.(newCard); // Trigger onChange callback if provided
+      return newCard;
+    });
+    setIsDirty(true);
+  };
   
   // Fullscreen state for HTML component editor
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -201,7 +212,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
 
   const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const keywords = e.target.value.split(',').map(kw => kw.trim()).filter(Boolean);
-    setCurrentCard(prev => ({...prev, keywords}));
+    updateCard(prev => ({...prev, keywords}));
   };
 
 
@@ -519,11 +530,11 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
               <>
                 <div>
                   <label htmlFor="card-name" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardName}</label>
-                  <input type="text" id="card-name" value={currentCard.name} onChange={e => setCurrentCard(p => ({...p, name: e.target.value}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                  <input type="text" id="card-name" value={currentCard.name} onChange={e => updateCard(p => ({...p, name: e.target.value}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                 </div>
                 <div>
                   <label htmlFor="card-type" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardType}</label>
-                  <select id="card-type" value={currentCard.type} onChange={e => setCurrentCard(p => ({...p, type: e.target.value as LibraryCardType}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                  <select id="card-type" value={currentCard.type} onChange={e => updateCard(p => ({...p, type: e.target.value as LibraryCardType}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     {cardTypes.map(type => <option key={type} value={type}>{typeTranslations[type]}</option>)}
                   </select>
                 </div>
@@ -834,7 +845,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                 </div>
                 <div>
                   <label htmlFor="card-content" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardContent}</label>
-                  <textarea id="card-content" value={currentCard.content} onChange={e => setCurrentCard(p => ({...p, content: e.target.value.slice(0, 1000)}))} rows={8} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                  <textarea id="card-content" value={currentCard.content} onChange={e => updateCard(p => ({...p, content: e.target.value.slice(0, 1000)}))} rows={8} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                   <p className="text-right text-xs text-gray-500 dark:text-zinc-400 mt-1">{t.characterCount}: {currentCard.content.length} / 1000</p>
                 </div>
               </>
