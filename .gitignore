@@ -31,3 +31,4 @@ public/
 Starlight-Cafe/
 *storybook.log
 storybook-static
+.playwright-mcp/*

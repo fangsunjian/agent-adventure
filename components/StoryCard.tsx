@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Story } from '../types';
 import { ImageLoadingSkeleton } from './icons';
 
@@ -40,18 +40,31 @@ const GracefulImage: React.FC<{ src: string; alt: string; className: string }> =
 
 const StoryCard: React.FC<{ story: Story }> = ({ story }) => {
   return (
-    <div className="flex flex-col bg-white dark:bg-zinc-900 rounded-lg shadow-md overflow-hidden border border-gray-200 dark:border-zinc-800 hover:shadow-lg hover:border-indigo-500/50 dark:hover:border-indigo-500/50 transition-all duration-300 h-60 sm:h-64 md:h-72">
-      <GracefulImage
-        src={story.coverImageUrl}
-        alt={`Cover for ${story.title}`}
-        className="w-full h-36 sm:h-40 md:h-48 object-cover flex-shrink-0"
-      />
-      <div className="p-3 flex flex-col flex-1 min-w-0">
-        <div className="space-y-2">
-          <h3 className="text-sm md:text-base font-bold font-serif text-gray-800 dark:text-zinc-200 line-clamp-2 leading-tight">{story.title}</h3>
-          <p className="text-xs text-gray-500 dark:text-zinc-400 line-clamp-1">by {story.creatorName}</p>
-          <p className="text-xs text-gray-600 dark:text-zinc-300 line-clamp-2 leading-relaxed">{story.description}</p>
+    <div className="relative flex flex-col bg-white dark:bg-zinc-900 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-all duration-300 h-60 sm:h-64 md:h-72">
+      {/* Image Container */}
+      <div className="relative w-full h-36 sm:h-40 md:h-48 flex-shrink-0">
+        <GracefulImage
+          src={story.coverImageUrl}
+          alt={`Cover for ${story.title}`}
+          className="w-full h-full object-cover"
+        />
+        {/* User info floating on image */}
+        <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 backdrop-blur-sm rounded text-xs text-white">
+          by {story.creatorName}
         </div>
+      </div>
+
+      {/* Content Container */}
+      <div className="px-3 pt-3 pb-6 flex flex-col flex-1 min-w-0">
+        <h3 className="text-sm md:text-base font-bold font-serif text-gray-800 dark:text-zinc-200 line-clamp-2 leading-tight mb-2">{story.title}</h3>
+
+        {/* Description wrapper - exactly 3 lines with ellipsis */}
+        <div className="overflow-hidden mb-2" style={{ height: '3.75rem', lineHeight: '1.25rem' }}>
+          <p className="text-xs text-gray-600 dark:text-zinc-300" style={{ margin: 0, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>{story.description}</p>
+        </div>
+
+        {/* Spacing to push content away from bottom edge */}
+        <div className="flex-1 min-h-8"></div>
       </div>
     </div>
   );

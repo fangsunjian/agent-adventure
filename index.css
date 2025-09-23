@@ -84,6 +84,36 @@
   min-height: 0; /* Important for flex items to allow shrinking */
 }
 
+/* Desktop-specific adjustments */
+@media (min-width: 1024px) {
+  .main-content-area {
+    /* On desktop, no bottom nav, so only account for top header */
+    padding-bottom: 2rem; /* Just some padding for visual spacing */
+  }
+}
+
+/* Line clamp utilities for text truncation */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Utility class for flex layouts that need proper height calculation */
 .flex-container-full-height {
   height: 100vh; /* Fallback */

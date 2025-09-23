@@ -41,7 +41,10 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
-      <BottomNavBar language="zh" />
+      {/* Hide bottom nav on desktop, show on mobile */}
+      <div className="block lg:hidden">
+        <BottomNavBar language="zh" />
+      </div>
       <NewGameModal
         isOpen={modals.newGame}
         onClose={handleNewGameClose}
