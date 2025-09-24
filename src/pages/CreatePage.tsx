@@ -69,7 +69,6 @@ const CreatePage: React.FC = () => {
     const [isDesktop, setIsDesktop] = useState(false);
     const [sidebarSelection, setSidebarSelection] = useState<SidebarSelection>('basic');
     const [showAddCardModal, setShowAddCardModal] = useState(false);
-    const [cardDirtyStates, setCardDirtyStates] = useState<Record<string, boolean>>({});
 
     // CHECK: 1024px 作为桌面版断点是否合适
     useEffect(() => {
@@ -197,12 +196,6 @@ const CreatePage: React.FC = () => {
         if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === cardId) {
             setSidebarSelection('basic');
         }
-        // Remove dirty state for deleted card
-        setCardDirtyStates(prev => {
-            const newStates = { ...prev };
-            delete newStates[cardId];
-            return newStates;
-        });
     };
 
     // Desktop-specific handlers
@@ -237,15 +230,6 @@ const CreatePage: React.FC = () => {
         }
     };
 
-    const markCardDirty = (cardId: string, isDirty: boolean) => {
-        setCardDirtyStates(prev => {
-            if (prev[cardId] === isDirty) return prev;
-            return {
-                ...prev,
-                [cardId]: isDirty
-            };
-        });
-    };
 
     // Add Card Modal Component
     const AddCardModal: React.FC<{
@@ -362,12 +346,20 @@ const CreatePage: React.FC = () => {
     };
 
     // Universal Inline Editor - wraps existing LibraryCardEditorModal
-    const UniversalInlineEditor: React.FC<{
+    const UniversalInlineEditor = React.memo<{
         card: LibraryCard;
         onSave: (card: LibraryCard) => void;
         onDelete: (cardId: string) => void;
         language: Language;
-    }> = ({ card, onSave, onDelete, language }) => {
+    }>(({ card, onSave, onDelete, language }) => {
+        const handleSave = React.useCallback((updatedCard: LibraryCard) => {
+            onSave(updatedCard);
+        }, [onSave]);
+
+        const handleDelete = React.useCallback(() => {
+            onDelete(card.id);
+        }, [card.id, onDelete]);
+
         return (
             <div className="relative bg-transparent">
                 {/* Hide the modal overlay and use inline styling */}
@@ -415,21 +407,18 @@ const CreatePage: React.FC = () => {
                 <div className="inline-editor-wrapper">
                     <LibraryCardEditorModal
                         card={card}
-                        onSave={(updatedCard) => {
-                            onSave(updatedCard);
-                            markCardDirty(card.id, false);
-                        }}
-                        onDelete={() => onDelete(card.id)}
+                        onSave={handleSave}
+                        onDelete={handleDelete}
                         onClose={() => {}} // No close needed for inline editor
                         language={language}
-                        onChange={(updatedCard) => {
-                            markCardDirty(card.id, true);
-                        }}
                     />
                 </div>
             </div>
         );
-    };
+    }, (prevProps, nextProps) => {
+        // Only re-render if card ID or language changes
+        return prevProps.card.id === nextProps.card.id && prevProps.language === nextProps.language;
+    });
 
     // Desktop Sidebar Component
     const renderSidebar = () => {
@@ -447,32 +436,11 @@ const CreatePage: React.FC = () => {
         return (
             <div className="w-80 bg-white dark:bg-zinc-900 border-r border-gray-300 dark:border-zinc-700 flex flex-col h-full">
                 {/* Header */}
-                <header className="p-4 border-b border-gray-200 dark:border-zinc-800">
+                <header className="p-4 border-b border-gray-200 dark:border-zinc-800 overflow-hidden">
                     <h2 className="text-lg font-bold font-serif text-gray-800 dark:text-zinc-200 mb-3">
                         {storyToEdit ? t.editTitle : t.createTitle}
                     </h2>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <input type="file" ref={fileInputRef} onChange={handleFileImport} style={{ display: 'none' }} accept=".json" />
-                        <button
-                            onClick={handleImportClick}
-                            title={t.import}
-                            className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600"
-                        >
-                            <UploadIcon className="w-3 h-3" /> {t.import}
-                        </button>
-                        <button
-                            onClick={handleExport}
-                            title={t.export}
-                            className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600"
-                        >
-                            <DownloadIcon className="w-3 h-3" /> {t.export}
-                        </button>
-                        <button
-                            onClick={handlePublish}
-                            className="px-2 py-1 text-xs bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700"
-                        >
-                            {t.publish}
-                        </button>
+                    <div className="flex justify-end">
                         <button
                             onClick={handleAttemptClose}
                             className="p-1 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full"
@@ -515,7 +483,6 @@ const CreatePage: React.FC = () => {
                         <div className="space-y-1 max-h-64 overflow-y-auto">
                             {story.library.map(card => {
                                 const isSelected = typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id;
-                                const isDirty = cardDirtyStates[card.id];
 
                                 return (
                                     <div
@@ -532,9 +499,6 @@ const CreatePage: React.FC = () => {
                                                 <span className="text-sm font-medium truncate">
                                                     {card.name || t.unnamedCard}
                                                 </span>
-                                                {isDirty && (
-                                                    <span className="text-orange-500 text-xs">*</span>
-                                                )}
                                             </div>
                                             <p className="text-xs text-gray-500 dark:text-zinc-400 truncate">
                                                 {card.type === 'custom' ? card.customTypeName : (typeTranslations[card.type] || card.type)}
@@ -550,7 +514,6 @@ const CreatePage: React.FC = () => {
                                                 }}
                                                 className="p-1 text-green-600 hover:bg-green-100 dark:hover:bg-green-900 rounded text-xs"
                                                 title={t.save}
-                                                disabled={!isDirty}
                                             >
                                                 <SaveIcon className="w-3 h-3" />
                                             </button>
@@ -576,6 +539,33 @@ const CreatePage: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Bottom Action Buttons */}
+                <div className="border-t border-gray-200 dark:border-zinc-800 p-4 space-y-3">
+                    <input type="file" ref={fileInputRef} onChange={handleFileImport} style={{ display: 'none' }} accept=".json" />
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleImportClick}
+                            title={t.import}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600"
+                        >
+                            <UploadIcon className="w-4 h-4" /> {t.import}
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            title={t.export}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-300 font-semibold rounded-md hover:bg-gray-300 dark:hover:bg-zinc-600"
+                        >
+                            <DownloadIcon className="w-4 h-4" /> {t.export}
+                        </button>
+                    </div>
+                    <button
+                        onClick={handlePublish}
+                        className="w-full px-3 py-2 text-sm bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700"
+                    >
+                        {t.publish}
+                    </button>
+                </div>
             </div>
         );
     };
@@ -599,6 +589,7 @@ const CreatePage: React.FC = () => {
         } else if (typeof sidebarSelection === 'object') {
             // Show card editor
             const card = story.library.find(c => c.id === sidebarSelection.cardId);
+
             if (!card) {
                 return (
                     <div className="flex items-center justify-center h-full text-gray-500 dark:text-zinc-400">
@@ -619,10 +610,7 @@ const CreatePage: React.FC = () => {
                     <div className="flex-1 overflow-y-auto p-6">
                         <UniversalInlineEditor
                             card={card}
-                            onSave={(updatedCard) => {
-                                handleSaveCard(updatedCard);
-                                markCardDirty(card.id, false);
-                            }}
+                            onSave={handleSaveCard}
                             onDelete={handleDeleteCard}
                             language={settings.language}
                         />

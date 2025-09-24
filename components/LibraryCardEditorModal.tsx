@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import type { LibraryCard, LibraryCardType, Language, MapLocation, HtmlComponentData } from '../types';
-import { translations, simpleUUID } from '../constants';
+import React, { useEffect, useState } from 'react';
+import { simpleUUID, translations } from '../constants';
+import type { HtmlComponentData, Language, LibraryCard, LibraryCardType, MapLocation } from '../types';
 import ConfirmationDialog from './ConfirmationDialog';
-import { CloseIcon, TrashIcon, MaximizeIcon, MinimizeIcon } from './icons';
 import HtmlComponentEditor from './HtmlComponentEditor';
+import { CloseIcon, MaximizeIcon, MinimizeIcon, TrashIcon } from './icons';
 
 interface LibraryCardEditorModalProps {
   card: LibraryCard | null;
@@ -11,7 +11,6 @@ interface LibraryCardEditorModalProps {
   onDelete: (cardId: string) => void;
   onClose: () => void;
   language: Language;
-  onChange?: (card: LibraryCard) => void; // Optional onChange callback for content changes
 }
 
 const createNewCard = (): LibraryCard => ({
@@ -137,7 +136,7 @@ const LocationEditModal: React.FC<LocationEditModalProps> = ({ isOpen, location,
   );
 };
 
-const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language, onChange }) => {
+const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language }) => {
   const t = translations[language];
   const [currentCard, setCurrentCard] = useState<LibraryCard>(card ? JSON.parse(JSON.stringify(card)) : createNewCard());
   const [isDirty, setIsDirty] = useState(false);
@@ -167,24 +166,14 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   // Location display options
   const [showLocationLabels, setShowLocationLabels] = useState(false);
 
-  // Helper function to update card and trigger onChange
+  // Helper function to update card and mark as dirty
   const updateCard = (updater: (prev: LibraryCard) => LibraryCard) => {
-    setCurrentCard(prev => {
-      const newCard = updater(prev);
-      onChange?.(newCard); // Trigger onChange callback if provided
-      return newCard;
-    });
+    setCurrentCard(prev => updater(prev));
     setIsDirty(true);
   };
   
   // Fullscreen state for HTML component editor
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  useEffect(() => {
-    const originalCard = JSON.stringify(card || createNewCard());
-    const newCard = JSON.stringify(currentCard);
-    setIsDirty(originalCard !== newCard);
-  }, [currentCard, card]);
 
   const handleClose = () => {
     if (isDirty) {
@@ -690,11 +679,6 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                                     // Get container dimensions dynamically - use a more reliable approach
                                     const container = document.querySelector('[data-map-container]') as HTMLElement;
                                     if (!container) {
-                                        // Return a placeholder that will trigger re-render when container is available
-                                        setTimeout(() => {
-                                            // Force re-render after DOM is ready
-                                            setCurrentCard(prev => ({ ...prev }));
-                                        }, 10);
                                         return null;
                                     }
                                     
@@ -773,26 +757,26 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                     )}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-2">{t.mapLocations}</label>
-                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                        <div className="space-y-2 max-h-32 overflow-y-auto overflow-x-hidden w-0 min-w-full">
                             {(currentCard.mapLocations || []).map((location) => (
                                 <div 
                                     key={location.id}
                                     data-location-item
-                                    className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
-                                        mapMode === 'edit' && selectedLocationId === location.id 
-                                            ? 'bg-indigo-100 dark:bg-indigo-900 border-2 border-indigo-500' 
+                                    className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors max-w-full ${
+                                        mapMode === 'edit' && selectedLocationId === location.id
+                                            ? 'bg-indigo-100 dark:bg-indigo-900 border-2 border-indigo-500'
                                             : 'bg-gray-50 dark:bg-zinc-700 hover:bg-gray-100 dark:hover:bg-zinc-600'
                                     }`}
                                     onClick={() => handleLocationItemClick(location)}
                                 >
-                                    <div className="flex-grow min-w-0">
-                                        <span className="text-sm font-medium block">{location.name}</span>
+                                    <div className="flex-grow min-w-0 overflow-hidden">
+                                        <span className="text-sm font-medium block truncate">{location.name}</span>
                                         {location.description && (
                                             <span className="text-xs text-gray-500 dark:text-zinc-400 block truncate">{location.description}</span>
                                         )}
                                     </div>
-                                    <span className="text-xs text-gray-500 dark:text-zinc-400 px-2">({location.x}, {location.y})</span>
-                                    <div className="flex gap-1">
+                                    <span className="text-xs text-gray-500 dark:text-zinc-400 px-2 flex-shrink-0">({location.x}, {location.y})</span>
+                                    <div className="flex gap-1 flex-shrink-0">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
