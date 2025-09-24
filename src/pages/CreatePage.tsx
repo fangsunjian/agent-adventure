@@ -64,6 +64,7 @@ const CreatePage: React.FC = () => {
     const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
     const [showPublishError, setShowPublishError] = useState(false);
     const [editingCard, setEditingCard] = useState<LibraryCard | null>(null);
+    const [cardToDelete, setCardToDelete] = useState<string | null>(null);
 
     // Desktop sidebar states
     const [isDesktop, setIsDesktop] = useState(false);
@@ -175,26 +176,69 @@ const CreatePage: React.FC = () => {
         if (e.target) e.target.value = ''; 
     };
     
-    const handleSaveCard = (cardToSave: LibraryCard) => {
-        setStory(prev => {
-            const cardIndex = prev.library.findIndex(c => c.id === cardToSave.id);
-            const newLibrary = [...prev.library];
-            if (cardIndex > -1) {
-                newLibrary[cardIndex] = cardToSave;
-            } else {
-                newLibrary.push(cardToSave);
-            }
-            return { ...prev, library: newLibrary };
-        });
+    const handleSaveCard = async (cardToSave: LibraryCard) => {
+        // Check if user is authenticated
+        if (!user) {
+            console.warn('User not authenticated, cannot save to backend');
+            alert('请先登录才能保存更改。Please log in to save changes.');
+            return;
+        }
+
+        // Update local state
+        const updatedStory = { ...story };
+        const cardIndex = updatedStory.library.findIndex(c => c.id === cardToSave.id);
+        if (cardIndex > -1) {
+            updatedStory.library[cardIndex] = cardToSave;
+        } else {
+            updatedStory.library.push(cardToSave);
+        }
+
+        setStory(updatedStory);
         setEditingCard(null);
+
+        // Persist to backend
+        try {
+            await saveStoryMutation.mutateAsync(updatedStory);
+            console.log('Card saved successfully');
+        } catch (error) {
+            console.error('Failed to save card:', error);
+            alert('保存失败，请重试。Failed to save, please try again.');
+        }
     };
     
     const handleDeleteCard = (cardId: string) => {
-        setStory(prev => ({ ...prev, library: prev.library.filter(c => c.id !== cardId) }));
+        setCardToDelete(cardId);
+    };
+
+    const confirmDeleteCard = async () => {
+        if (!cardToDelete) return;
+
+        // Check if user is authenticated
+        if (!user) {
+            console.warn('User not authenticated, cannot delete from backend');
+            alert('请先登录才能删除资料卡。Please log in to delete cards.');
+            setCardToDelete(null);
+            return;
+        }
+
+        // Update local state
+        const updatedStory = { ...story, library: story.library.filter(c => c.id !== cardToDelete) };
+        setStory(updatedStory);
         setEditingCard(null);
+
         // If we're on desktop and this card was selected, switch to basic info
-        if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === cardId) {
+        if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === cardToDelete) {
             setSidebarSelection('basic');
+        }
+        setCardToDelete(null);
+
+        // Persist to backend
+        try {
+            await saveStoryMutation.mutateAsync(updatedStory);
+            console.log('Card deleted successfully');
+        } catch (error) {
+            console.error('Failed to delete card:', error);
+            alert('删除失败，请重试。Failed to delete, please try again.');
         }
     };
 
@@ -510,6 +554,17 @@ const CreatePage: React.FC = () => {
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
+                                                    // If this card is being edited in modal, focus on the modal instead
+                                                    if (editingCard && editingCard.id === card.id) {
+                                                        // Do nothing - user should save in modal
+                                                        return;
+                                                    }
+                                                    // For desktop inline editing, handle save here
+                                                    if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id) {
+                                                        // Save the currently selected card from the content area
+                                                        // This is a placeholder - the actual save should come from the editor
+                                                        return;
+                                                    }
                                                     handleSaveCard(card);
                                                 }}
                                                 className="p-1 text-green-600 hover:bg-green-100 dark:hover:bg-green-900 rounded text-xs"
@@ -800,6 +855,16 @@ const CreatePage: React.FC = () => {
                 message={t.publishErrorMessage}
                 confirmText="OK"
                 cancelText=""
+            />
+
+            <ConfirmationDialog
+                isOpen={cardToDelete !== null}
+                onClose={() => setCardToDelete(null)}
+                onConfirm={confirmDeleteCard}
+                title={t.deleteCardTitle || 'Delete Card'}
+                message={t.deleteCardMessage || 'Are you sure you want to delete this card? This action cannot be undone.'}
+                confirmText={t.delete || 'Delete'}
+                cancelText={t.cancel || 'Cancel'}
             />
         </>
     );
