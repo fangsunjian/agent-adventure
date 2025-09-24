@@ -1,4 +1,11 @@
 import React, { useEffect, useState } from 'react';
+
+// Extend Window interface to include our timeout
+declare global {
+  interface Window {
+    updateCardTimeout?: NodeJS.Timeout;
+  }
+}
 import { simpleUUID, translations } from '../constants';
 import type { HtmlComponentData, Language, LibraryCard, LibraryCardType, MapLocation } from '../types';
 import ConfirmationDialog from './ConfirmationDialog';
@@ -11,6 +18,7 @@ interface LibraryCardEditorModalProps {
   onDelete: (cardId: string) => void;
   onClose: () => void;
   language: Language;
+  onCardUpdate?: (card: LibraryCard) => void; // Optional callback for real-time updates
 }
 
 const createNewCard = (): LibraryCard => ({
@@ -136,12 +144,20 @@ const LocationEditModal: React.FC<LocationEditModalProps> = ({ isOpen, location,
   );
 };
 
-const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language }) => {
+const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language, onCardUpdate }) => {
   const t = translations[language];
   const [currentCard, setCurrentCard] = useState<LibraryCard>(card ? JSON.parse(JSON.stringify(card)) : createNewCard());
   const [isDirty, setIsDirty] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Update currentCard when the card prop changes
+  useEffect(() => {
+    if (card) {
+      setCurrentCard(JSON.parse(JSON.stringify(card)));
+      setIsDirty(false);
+    }
+  }, [card]);
   
   // Map view state
   const [mapScale, setMapScale] = useState(1);
@@ -166,9 +182,27 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   // Location display options
   const [showLocationLabels, setShowLocationLabels] = useState(false);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (window.updateCardTimeout) {
+        clearTimeout(window.updateCardTimeout);
+        delete window.updateCardTimeout;
+      }
+    };
+  }, []);
+
   // Helper function to update card and mark as dirty
   const updateCard = (updater: (prev: LibraryCard) => LibraryCard) => {
-    setCurrentCard(prev => updater(prev));
+    setCurrentCard(prev => {
+      const updated = updater(prev);
+      // FINAL FIX: Call onCardUpdate to sync data but prevent render-in-render
+      // The parent's handleCardUpdate only updates ref, doesn't cause re-renders
+      if (onCardUpdate) {
+        onCardUpdate(updated);
+      }
+      return updated;
+    });
     setIsDirty(true);
   };
   
@@ -185,6 +219,11 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
 
   const handleSave = () => {
     if (currentCard.name.trim() && currentCard.content.trim()) {
+      // CRITICAL: Update parent component state with latest data before saving
+      // This ensures data consistency between modal state and parent state
+      if (onCardUpdate) {
+        onCardUpdate(currentCard);
+      }
       onSave(currentCard);
     }
   };
@@ -307,19 +346,19 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   const handleConfirmDeleteLocation = () => {
     if (deletingLocationId) {
       const newLocations = currentCard.mapLocations?.filter(loc => loc.id !== deletingLocationId) || [];
-      setCurrentCard(p => ({...p, mapLocations: newLocations}));
+      updateCard(p => ({...p, mapLocations: newLocations}));
       setDeletingLocationId(null);
     }
   };
   
   const handleSaveLocationEdit = (name: string, description: string) => {
     if (editingLocation) {
-      const updatedLocations = currentCard.mapLocations?.map(loc => 
-        loc.id === editingLocation.id 
+      const updatedLocations = currentCard.mapLocations?.map(loc =>
+        loc.id === editingLocation.id
           ? { ...loc, name, description }
           : loc
       ) || [];
-      setCurrentCard(p => ({ ...p, mapLocations: updatedLocations }));
+      updateCard(p => ({ ...p, mapLocations: updatedLocations }));
       setEditingLocation(null);
       setShowLocationEditModal(false);
     }
@@ -334,12 +373,12 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
         name: name || `${language === 'zh' ? '位置' : 'Location'} ${(currentCard.mapLocations || []).length + 1}`,
         description
       };
-      
-      setCurrentCard(prev => ({
+
+      updateCard(prev => ({
         ...prev,
         mapLocations: [...(prev.mapLocations || []), newLocation]
       }));
-      
+
       setPendingLocationCoords(null);
       setShowAddLocationModal(false);
     }
@@ -398,7 +437,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
             ? { ...loc, x: coord1000X, y: coord1000Y }
             : loc
         ) || [];
-        setCurrentCard(prev => ({ ...prev, mapLocations: updatedLocations }));
+        updateCard(prev => ({ ...prev, mapLocations: updatedLocations }));
       }
     }
   };
@@ -519,11 +558,15 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
               <>
                 <div>
                   <label htmlFor="card-name" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardName}</label>
-                  <input type="text" id="card-name" value={currentCard.name} onChange={e => updateCard(p => ({...p, name: e.target.value}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                  <input type="text" id="card-name" value={currentCard.name} onChange={e => {
+                    updateCard(prev => ({...prev, name: e.target.value}));
+                  }} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                 </div>
                 <div>
                   <label htmlFor="card-type" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardType}</label>
-                  <select id="card-type" value={currentCard.type} onChange={e => updateCard(p => ({...p, type: e.target.value as LibraryCardType}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                  <select id="card-type" value={currentCard.type} onChange={e => {
+                    updateCard(prev => ({...prev, type: e.target.value as LibraryCardType}));
+                  }} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     {cardTypes.map(type => <option key={type} value={type}>{typeTranslations[type]}</option>)}
                   </select>
                 </div>
@@ -532,14 +575,18 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
             {currentCard.type === 'custom' && (
                 <div className="pt-2">
                     <label htmlFor="card-custom-type-name" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.customTypeName}</label>
-                    <input type="text" id="card-custom-type-name" value={currentCard.customTypeName || ''} onChange={e => setCurrentCard(p => ({...p, customTypeName: e.target.value}))} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                    <input type="text" id="card-custom-type-name" value={currentCard.customTypeName || ''} onChange={e => {
+                      updateCard(prev => ({...prev, customTypeName: e.target.value}));
+                    }} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                 </div>
             )}
             {currentCard.type === 'map' && (
                 <div className="pt-2 space-y-4">
                     <div>
                         <label htmlFor="card-map-image-url" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.mapImageUrl}</label>
-                        <input type="text" id="card-map-image-url" value={currentCard.mapImageUrl || ''} onChange={e => setCurrentCard(p => ({...p, mapImageUrl: e.target.value}))} placeholder={t.mapImageUrlPlaceholder} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                        <input type="text" id="card-map-image-url" value={currentCard.mapImageUrl || ''} onChange={e => {
+                          updateCard(prev => ({...prev, mapImageUrl: e.target.value}));
+                        }} placeholder={t.mapImageUrlPlaceholder} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                     </div>
                     {currentCard.mapImageUrl && (
                         <div>
@@ -812,7 +859,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                     <HtmlComponentEditor
                         htmlData={currentCard.htmlData || { html: '', css: '', js: '' }}
                         onChange={(htmlData: HtmlComponentData) => {
-                            setCurrentCard(prev => ({
+                            updateCard(prev => ({
                                 ...prev,
                                 htmlData
                             }));
@@ -829,7 +876,10 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                 </div>
                 <div>
                   <label htmlFor="card-content" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardContent}</label>
-                  <textarea id="card-content" value={currentCard.content} onChange={e => updateCard(p => ({...p, content: e.target.value.slice(0, 1000)}))} rows={8} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                  <textarea id="card-content" value={currentCard.content} onChange={e => {
+                    const newContent = e.target.value.slice(0, 1000);
+                    updateCard(prev => ({...prev, content: newContent}));
+                  }} rows={8} className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
                   <p className="text-right text-xs text-gray-500 dark:text-zinc-400 mt-1">{t.characterCount}: {currentCard.content.length} / 1000</p>
                 </div>
               </>

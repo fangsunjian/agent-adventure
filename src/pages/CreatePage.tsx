@@ -71,6 +71,12 @@ const CreatePage: React.FC = () => {
     const [sidebarSelection, setSidebarSelection] = useState<SidebarSelection>('basic');
     const [showAddCardModal, setShowAddCardModal] = useState(false);
 
+    // Track current editing card state for desktop inline editor
+    const [currentEditingCardData, setCurrentEditingCardData] = useState<Record<string, LibraryCard>>({});
+
+    // Ref to store inline editor instances for getting current data
+    const inlineEditorRefs = useRef<Record<string, { getCurrentData: () => LibraryCard }>>({});
+
     // CHECK: 1024px 作为桌面版断点是否合适
     useEffect(() => {
         const checkIsDesktop = () => {
@@ -176,10 +182,9 @@ const CreatePage: React.FC = () => {
         if (e.target) e.target.value = ''; 
     };
     
-    const handleSaveCard = async (cardToSave: LibraryCard) => {
+    const handleSaveCard = React.useCallback(async (cardToSave: LibraryCard) => {
         // Check if user is authenticated
         if (!user) {
-            console.warn('User not authenticated, cannot save to backend');
             alert('请先登录才能保存更改。Please log in to save changes.');
             return;
         }
@@ -198,17 +203,20 @@ const CreatePage: React.FC = () => {
 
         // Persist to backend
         try {
-            await saveStoryMutation.mutateAsync(updatedStory);
+            const savedStory = await saveStoryMutation.mutateAsync(updatedStory);
             console.log('Card saved successfully');
+
+            // CRITICAL FIX: Ensure local state stays in sync with saved data
+            setStory(savedStory);
         } catch (error) {
             console.error('Failed to save card:', error);
             alert('保存失败，请重试。Failed to save, please try again.');
         }
-    };
+    }, [user, story, setStory, setEditingCard, saveStoryMutation]);
     
-    const handleDeleteCard = (cardId: string) => {
+    const handleDeleteCard = React.useCallback((cardId: string) => {
         setCardToDelete(cardId);
-    };
+    }, [setCardToDelete]);
 
     const confirmDeleteCard = async () => {
         if (!cardToDelete) return;
@@ -234,8 +242,11 @@ const CreatePage: React.FC = () => {
 
         // Persist to backend
         try {
-            await saveStoryMutation.mutateAsync(updatedStory);
+            const savedStory = await saveStoryMutation.mutateAsync(updatedStory);
             console.log('Card deleted successfully');
+
+            // CRITICAL FIX: Ensure local state stays in sync with saved data
+            setStory(savedStory);
         } catch (error) {
             console.error('Failed to delete card:', error);
             alert('删除失败，请重试。Failed to delete, please try again.');
@@ -272,6 +283,24 @@ const CreatePage: React.FC = () => {
                 setEditingCard(card);
             }
         }
+    };
+
+    // Handle card data updates from inline editor
+    const handleCardDataUpdate = React.useCallback((updatedCard: LibraryCard) => {
+        setCurrentEditingCardData(prev => ({
+            ...prev,
+            [updatedCard.id]: updatedCard
+        }));
+    }, []);
+
+    // Get current card data (either from editing state, inline editor, or story)
+    const getCurrentCardData = (cardId: string): LibraryCard | undefined => {
+        // First try to get data from inline editor ref (most current)
+        if (inlineEditorRefs.current[cardId]) {
+            return inlineEditorRefs.current[cardId].getCurrentData();
+        }
+        // Fallback to editing state or story
+        return currentEditingCardData[cardId] || story.library.find(c => c.id === cardId);
     };
 
 
@@ -395,7 +424,28 @@ const CreatePage: React.FC = () => {
         onSave: (card: LibraryCard) => void;
         onDelete: (cardId: string) => void;
         language: Language;
-    }>(({ card, onSave, onDelete, language }) => {
+        onCardUpdate: (updatedCard: LibraryCard) => void; // New prop for real-time updates
+        onTriggerSave?: () => void; // External save trigger
+        cardId: string; // For ref management
+    }>(({ card, onSave, onDelete, language, onCardUpdate, cardId }) => {
+        // Store current data for external access
+        const currentDataRef = useRef<LibraryCard>(card);
+
+        // Register this editor instance for external access
+        React.useEffect(() => {
+            inlineEditorRefs.current[cardId] = {
+                getCurrentData: () => currentDataRef.current
+            };
+            return () => {
+                delete inlineEditorRefs.current[cardId];
+            };
+        }, [cardId]);
+
+        // Create a wrapper for onCardUpdate to also update our ref
+        const handleCardUpdate = React.useCallback((updatedCard: LibraryCard) => {
+            currentDataRef.current = updatedCard;
+            // Don't call onCardUpdate to prevent re-renders during typing
+        }, []);
         const handleSave = React.useCallback((updatedCard: LibraryCard) => {
             onSave(updatedCard);
         }, [onSave]);
@@ -403,6 +453,15 @@ const CreatePage: React.FC = () => {
         const handleDelete = React.useCallback(() => {
             onDelete(card.id);
         }, [card.id, onDelete]);
+
+        // Create a custom save handler that also updates the parent state
+        const handleCustomSave = React.useCallback((updatedCard: LibraryCard) => {
+            // CRITICAL: Only update parent state when save is explicitly triggered
+            // This prevents render-in-render issues while ensuring data consistency
+            onCardUpdate(updatedCard);
+            // Also call the normal save handler
+            onSave(updatedCard);
+        }, [onSave, onCardUpdate]);
 
         return (
             <div className="relative bg-transparent">
@@ -451,17 +510,25 @@ const CreatePage: React.FC = () => {
                 <div className="inline-editor-wrapper">
                     <LibraryCardEditorModal
                         card={card}
-                        onSave={handleSave}
+                        onSave={handleCustomSave}
                         onDelete={handleDelete}
                         onClose={() => {}} // No close needed for inline editor
                         language={language}
+                        onCardUpdate={handleCardUpdate}
                     />
                 </div>
             </div>
         );
     }, (prevProps, nextProps) => {
-        // Only re-render if card ID or language changes
-        return prevProps.card.id === nextProps.card.id && prevProps.language === nextProps.language;
+        // Return true if props are equal (no re-render needed)
+        // Return false if props are different (re-render needed)
+        return prevProps.card.id === nextProps.card.id &&
+               prevProps.cardId === nextProps.cardId &&
+               prevProps.language === nextProps.language &&
+               prevProps.onSave === nextProps.onSave &&
+               prevProps.onDelete === nextProps.onDelete &&
+               prevProps.onCardUpdate === nextProps.onCardUpdate &&
+               JSON.stringify(prevProps.card) === JSON.stringify(nextProps.card);
     });
 
     // Desktop Sidebar Component
@@ -559,10 +626,12 @@ const CreatePage: React.FC = () => {
                                                         // Do nothing - user should save in modal
                                                         return;
                                                     }
-                                                    // For desktop inline editing, handle save here
+                                                    // For desktop inline editing, use the current edited data
                                                     if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id) {
-                                                        // Save the currently selected card from the content area
-                                                        // This is a placeholder - the actual save should come from the editor
+                                                        const currentCardData = getCurrentCardData(card.id);
+                                                        if (currentCardData) {
+                                                            handleSaveCard(currentCardData);
+                                                        }
                                                         return;
                                                     }
                                                     handleSaveCard(card);
@@ -665,9 +734,11 @@ const CreatePage: React.FC = () => {
                     <div className="flex-1 overflow-y-auto p-6">
                         <UniversalInlineEditor
                             card={card}
+                            cardId={card.id}
                             onSave={handleSaveCard}
                             onDelete={handleDeleteCard}
                             language={settings.language}
+                            onCardUpdate={handleCardDataUpdate}
                         />
                     </div>
                 </div>
