@@ -92,7 +92,10 @@ export function useSavePlaythrough() {
         .from('playthroughs')
         .upsert({
           ...playthrough,
-          updated_at: new Date().toISOString(),
+          // 不添加 updated_at 字段，因为数据库表中没有这个字段
+          // 数据库只有: id, created_at, user_id, story_id, game_state
+        }, {
+          onConflict: 'user_id,story_id' // 指定冲突处理字段，对应数据库的唯一约束
         })
         .select()
         .single()

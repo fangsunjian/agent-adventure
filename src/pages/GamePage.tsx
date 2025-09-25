@@ -91,13 +91,14 @@ export default function GamePage(): React.ReactNode {
   // Save playthrough handler
   const onSavePlaythrough = useCallback(async (playthrough: Playthrough) => {
     try {
-      // Use the existing playthrough ID if available, otherwise create new one
-      const playthroughToSave = {
-        ...playthrough,
-        id: existingPlaythrough?.id,
+      // Prepare data in the correct database format - ONLY fields that exist in the database
+      const playthroughToSave: any = {
+        // Include existing ID if updating, otherwise let database generate new UUID
+        ...(existingPlaythrough?.id && { id: existingPlaythrough.id }),
         user_id: userId,
         story_id: storyId,
         game_state: {
+          // Store all game state in the jsonb field
           history: playthrough.history,
           summaries: playthrough.summaries,
           grandSummaries: playthrough.grandSummaries,
@@ -114,9 +115,11 @@ export default function GamePage(): React.ReactNode {
         }
       };
 
+      // 数据结构现在与数据库匹配：id, user_id, story_id, game_state
       await savePlaythroughMutation.mutateAsync(playthroughToSave);
     } catch (error) {
       console.error('Failed to save playthrough:', error);
+      // 不要重新抛出错误，避免影响UI
     }
   }, [existingPlaythrough?.id, userId, storyId, savePlaythroughMutation]);
 
@@ -253,28 +256,79 @@ export default function GamePage(): React.ReactNode {
     setCommunicationsLog(prev => [...prev, { type, data, timestamp: new Date().toISOString() }]);
   }, []);
 
-  // 暴露调试和测试用的全局变量
+  // 暴露调试和测试用的全局变量 - 只在组件挂载时设置一次
   useEffect(() => {
     (window as any).GameToolRegistry = GameToolRegistry;
-    
+
+    // 添加调试函数检查工具注册状态
+    (window as any).debugToolRegistry = function() {
+      console.log('🔍 GameToolRegistry调试:');
+      console.log('  - 总工具数:', GameToolRegistry.getToolStatistics().totalTools);
+      console.log('  - 工具健康状态:', GameToolRegistry.getToolHealth());
+
+      // 尝试查看所有已注册的工具
+      const allTools = GameToolRegistry.getTools();
+      console.log('  - 所有已注册的工具:', allTools.map(t => ({
+        name: t.name,
+        description: t.description.substring(0, 50) + '...'
+      })));
+
+      return allTools;
+    };
+
+    // 便捷的工具查看函数
+    (window as any).listAllTools = function() {
+      const stats = GameToolRegistry.getToolStatistics();
+      console.log('📊 所有工具统计:', stats);
+      console.log('🛠️ HTML组件工具:', stats.tools.filter(t => t.source === 'html_component'));
+
+      // 额外调试信息
+      console.log('🔍 工具源分析:', stats.toolsBySource);
+      console.log('🔍 所有工具名称:', stats.tools.map(t => t.name));
+
+      return stats;
+    };
+
+    // 调试工具已准备好，但不输出日志以避免控制台污染
+  }, []); // 空依赖数组，只在组件挂载时执行一次
+
+  // 更新游戏数据到全局变量 - 只在必要时更新，避免过度重复执行
+  useEffect(() => {
     // 从gameState构建memories对象
     const memoriesFromState = {
       summaries: gameState.summaries || [],
       grandSummaries: gameState.grandSummaries || [],
       milestoneSummaries: gameState.milestoneSummaries || [],
     };
-    
+
+    // 只更新数据，不重复设置函数
     (window as any).gameData = {
       activeStory: gameState.activeStory,
       settings: settings,
       memories: memoriesFromState,
       gameState: gameState
     };
-    
+
+    if (showDebug) {
+      (window as any).debugGameState = gameState;
+      (window as any).debugSettings = settings;
+      (window as any).debugMemories = memoriesFromState;
+      (window as any).debugLogCommunication = logCommunication;
+    }
+  }, [gameState.activeStory, gameState.summaries, gameState.grandSummaries, gameState.milestoneSummaries, settings, showDebug]); // 更精确的依赖
+
+  // 设置测试工具函数 - 只在组件挂载时设置一次，避免重复执行
+  useEffect(() => {
     // 暴露测试工具函数到外部页面
     (window as any).testAIToolCall = async function(toolName: string, args: any = {}) {
       console.log(`🤖 测试AI工具调用: ${toolName}`);
-      
+
+      // 获取最新的游戏数据
+      const currentGameData = (window as any).gameData || {};
+      const currentSettings = currentGameData.settings || {};
+      const currentMemories = currentGameData.memories || { summaries: [], grandSummaries: [], milestoneSummaries: [] };
+      const currentActiveStory = currentGameData.activeStory;
+
       // 创建模拟的工具调用
       const mockToolCall = {
         function: {
@@ -282,16 +336,16 @@ export default function GamePage(): React.ReactNode {
           arguments: JSON.stringify(args)
         }
       };
-      
+
       // 创建模拟的游戏上下文
       const mockContext = {
-        settings: settings,
+        settings: currentSettings,
         history: [],
-        memories: memoriesFromState,
-        activeStory: gameState.activeStory,
+        memories: currentMemories,
+        activeStory: currentActiveStory,
         logCommunication: (type: string, data: any) => console.log(`📋 ${type}:`, data)
       };
-      
+
       try {
         const result = await GameToolRegistry.executeTool(mockToolCall, mockContext);
         console.log(`✅ 工具执行结果:`, result);
@@ -305,19 +359,23 @@ export default function GamePage(): React.ReactNode {
     // 暴露组件工具查询函数
     (window as any).listComponentTools = function(componentId?: string) {
       console.log('🔍 调试信息:');
-      console.log('  - gameState.activeStory:', !!gameState.activeStory);
-      console.log('  - library存在:', !!gameState.activeStory?.library);
-      console.log('  - library长度:', gameState.activeStory?.library?.length || 0);
-      
-      const allLibraryCards = gameState.activeStory?.library || [];
+
+      const currentGameData = (window as any).gameData || {};
+      const currentActiveStory = currentGameData.activeStory;
+
+      console.log('  - gameState.activeStory:', !!currentActiveStory);
+      console.log('  - library存在:', !!currentActiveStory?.library);
+      console.log('  - library长度:', currentActiveStory?.library?.length || 0);
+
+      const allLibraryCards = currentActiveStory?.library || [];
       console.log('  - 所有卡片类型:', allLibraryCards.map(card => ({ id: card.id, type: card.type, name: card.name })));
-      
+
       if (!componentId) {
         // 如果没有指定组件ID，查找所有HTML组件
         const htmlComponents = allLibraryCards.filter(card => card.type === 'html');
         console.log('  - HTML组件数量:', htmlComponents.length);
         console.log('  - HTML组件详情:', htmlComponents.map(c => ({ id: c.id, name: c.name, hasHtmlData: !!c.htmlData })));
-        
+
         if (htmlComponents.length === 0) {
           console.log('❌ 未找到HTML组件');
           return [];
@@ -325,7 +383,7 @@ export default function GamePage(): React.ReactNode {
         componentId = htmlComponents[0].id; // 使用第一个HTML组件
         console.log(`📋 使用组件ID: ${componentId}`);
       }
-      
+
       const tools = GameToolRegistry.getHtmlComponentTools(componentId);
       console.log(`📋 组件 ${componentId} 的工具列表:`, tools.map(t => ({
         name: t.name,
@@ -334,51 +392,7 @@ export default function GamePage(): React.ReactNode {
       })));
       return tools;
     };
-
-    // 便捷的工具查看函数
-    (window as any).listAllTools = function() {
-      const stats = GameToolRegistry.getToolStatistics();
-      console.log('📊 所有工具统计:', stats);
-      console.log('🛠️ HTML组件工具:', stats.tools.filter(t => t.source === 'html_component'));
-      
-      // 额外调试信息
-      console.log('🔍 工具源分析:', stats.toolsBySource);
-      console.log('🔍 所有工具名称:', stats.tools.map(t => t.name));
-      
-      return stats;
-    };
-
-    // 添加调试函数检查工具注册状态
-    (window as any).debugToolRegistry = function() {
-      console.log('🔍 GameToolRegistry调试:');
-      console.log('  - 总工具数:', GameToolRegistry.getToolStatistics().totalTools);
-      console.log('  - 工具健康状态:', GameToolRegistry.getToolHealth());
-      
-      // 尝试查看所有已注册的工具
-      const allTools = GameToolRegistry.getTools();
-      console.log('  - 所有已注册工具:', allTools.map(t => ({ 
-        name: t.name, 
-        description: t.description.substring(0, 50) + '...'
-      })));
-      
-      return allTools;
-    };
-
-    console.log('🛠️ 外部测试工具已准备好：');
-    console.log('  - testAIToolCall(toolName, args) - 测试AI工具调用');
-    console.log('  - listComponentTools(componentId?) - 查看已注册的工具');
-    console.log('  - listAllTools() - 查看所有工具统计');
-    console.log('  - debugToolRegistry() - 调试工具注册状态');
-    console.log('  - GameToolRegistry.getToolStatistics() - 查看工具统计');
-    console.log('  - GameToolRegistry.getToolHealth() - 查看工具健康状态');
-    
-    if (showDebug) {
-      (window as any).debugGameState = gameState;
-      (window as any).debugSettings = settings;
-      (window as any).debugMemories = memoriesFromState;
-      (window as any).debugLogCommunication = logCommunication;
-    }
-  }, [gameState, settings, logCommunication]);
+  }, []); // 空依赖数组，只在挂载时执行一次
 
   const startNewSession = useCallback((story: Story, userName?: string, charName?: string) => {
     // 重置GameEngine会话状态（包括LLM提供商检测）
@@ -514,11 +528,35 @@ export default function GamePage(): React.ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStory, existingPlaythrough]);
   
+  // 保存游戏进度 - 只在重要变化时触发，避免无限循环
+  const lastSaveRef = useRef<{ turn: number, historyLength: number, gameStatus: string }>({
+    turn: -1,
+    historyLength: 0,
+    gameStatus: ''
+  });
+
   useEffect(() => {
-      if (activeStory && (gameState.gameStatus !== GameStatus.Idle || gameState.history.length > 0)) {
+    // 只在游戏状态真正有意义的变化时触发保存
+    const shouldSave = activeStory && (
+      gameState.turn !== lastSaveRef.current.turn ||
+      gameState.history.length !== lastSaveRef.current.historyLength ||
+      (gameState.gameStatus !== GameStatus.Idle && gameState.gameStatus !== lastSaveRef.current.gameStatus)
+    );
+
+    if (shouldSave) {
+      // 更新保存记录
+      lastSaveRef.current = {
+        turn: gameState.turn,
+        historyLength: gameState.history.length,
+        gameStatus: gameState.gameStatus
+      };
+
+      // 异步保存，避免阻塞渲染
+      setTimeout(() => {
         onSavePlaythrough({ storyId: activeStory.id, ...gameState });
-      }
-  }, [gameState, activeStory, onSavePlaythrough]);
+      }, 100);
+    }
+  }, [gameState.turn, gameState.history.length, gameState.gameStatus, activeStory, onSavePlaythrough]);
 
   // 监测玩家位置变化
   useEffect(() => {
