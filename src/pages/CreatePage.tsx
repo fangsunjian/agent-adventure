@@ -5,6 +5,7 @@ import { CloseIcon, PlusIcon, UploadIcon, DownloadIcon, SaveIcon, TrashIcon } fr
 import ConfirmationDialog from '../../components/ConfirmationDialog';
 import LibraryCardEditorModal from '../../components/LibraryCardEditorModal';
 import PreviewPanel from '../../components/PreviewPanel';
+import AvatarPreview from '../../components/AvatarPreview';
 import HtmlComponentEditor from '../../components/HtmlComponentEditor';
 import MapEditor from '../../components/MapEditor';
 import { useUserSettings } from '../../hooks/useUserSettings';
@@ -91,13 +92,23 @@ const CreatePage: React.FC = () => {
     const [desktopEditingCard, setDesktopEditingCard] = useState<LibraryCard | null>(null);
     const [desktopCardIsDirty, setDesktopCardIsDirty] = useState(false);
 
+    // Image crop state (inline editing)
+    const [cropData, setCropData] = useState({ x: 0, y: 0, scale: 1 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
+    const [imageLoaded, setImageLoaded] = useState(false);
+
     // 页面加载时检测设备类型，之后不再动态切换
     useEffect(() => {
         const checkIsDesktop = () => {
             const isDesktopDevice = window.innerWidth >= 1024;
             setIsDesktop(isDesktopDevice);
-            console.log('Device type detected:', isDesktopDevice ? 'Desktop' : 'Mobile');
+            console.log('Device type detected:', isDesktopDevice ? 'Desktop' : 'Mobile', 'Width:', window.innerWidth);
         };
+
+        // 临时强制设置为桌面版用于测试坐标修复
+        setIsDesktop(true);
+        console.log('Force set to Desktop mode for coordinate testing');
 
         checkIsDesktop();
         // 移除resize监听器，只在页面刷新时检测一次
@@ -422,6 +433,75 @@ const CreatePage: React.FC = () => {
         }
     };
 
+    // Initialize crop data when card changes
+    useEffect(() => {
+        if (desktopEditingCard?.avatarCrop) {
+            setCropData(desktopEditingCard.avatarCrop);
+        } else {
+            setCropData({ x: 0, y: 0, scale: 1 });
+        }
+        setImageLoaded(false);
+    }, [desktopEditingCard?.id, desktopEditingCard?.imageUrl]);
+
+    // Save crop data when it changes
+    useEffect(() => {
+        if (desktopEditingCard && imageLoaded &&
+            (cropData.x !== 0 || cropData.y !== 0 || cropData.scale !== 1)) {
+            updateDesktopCard(prev => ({...prev, avatarCrop: cropData}));
+        }
+    }, [cropData, imageLoaded]);
+
+    // Image handling functions
+    const handleImageLoad = () => {
+        setImageLoaded(true);
+    };
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (e.button === 0) { // Left mouse button
+            setIsDragging(true);
+            setLastMousePos({ x: e.clientX, y: e.clientY });
+            e.preventDefault();
+        }
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (isDragging && imageLoaded) {
+            const deltaX = e.clientX - lastMousePos.x;
+            const deltaY = e.clientY - lastMousePos.y;
+
+            setCropData(prev => ({
+                ...prev,
+                x: prev.x + deltaX,
+                y: prev.y + deltaY
+            }));
+
+            setLastMousePos({ x: e.clientX, y: e.clientY });
+            e.preventDefault();
+        }
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    const handleZoomIn = () => {
+        setCropData(prev => ({
+            ...prev,
+            scale: Math.min(prev.scale * 1.2, 5) // Max zoom 5x
+        }));
+    };
+
+    const handleZoomOut = () => {
+        setCropData(prev => ({
+            ...prev,
+            scale: Math.max(prev.scale / 1.2, 0.1) // Min zoom 0.1x
+        }));
+    };
+
+    const handleResetZoom = () => {
+        setCropData({ x: 0, y: 0, scale: 1 });
+    };
+
     // Get current card for preview
     const getCurrentPreviewCard = (): LibraryCard | null => {
         if (typeof sidebarSelection === 'object') {
@@ -435,8 +515,8 @@ const CreatePage: React.FC = () => {
     const currentCardSupportsPreview = (): boolean => {
         const card = getCurrentPreviewCard();
         if (!card) return false;
-        // Currently supporting map and html types
-        return card.type === 'map' || card.type === 'html';
+        // Currently supporting map, html, and character types
+        return card.type === 'map' || card.type === 'html' || card.type === 'character';
     };
 
     // Auto-show preview when editing supported card types
@@ -619,6 +699,154 @@ const CreatePage: React.FC = () => {
                             onChange={e => updateDesktopCard(prev => ({...prev, customTypeName: e.target.value}))}
                             className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                         />
+                    </div>
+                )}
+
+                {/* Character editing */}
+                {card.type === 'character' && (
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="desktop-card-image-url" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">角色图片</label>
+                            <input
+                                type="text"
+                                id="desktop-card-image-url"
+                                value={card.imageUrl || ''}
+                                onChange={e => updateDesktopCard(prev => ({...prev, imageUrl: e.target.value}))}
+                                placeholder="请输入图片地址"
+                                className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                            />
+                        </div>
+
+                        {/* 图片预览和裁切区域 */}
+                        {card.imageUrl && (
+                            <div className="bg-gray-50 dark:bg-zinc-800 rounded-lg p-4">
+                                <h4 className="text-sm font-medium text-gray-700 dark:text-zinc-300 mb-3">头像预览和裁切</h4>
+
+                                <div className="flex gap-4">
+                                    {/* 左侧 - 图片预览区域 */}
+                                    <div className="flex-1">
+                                        <div
+                                            className="relative bg-gray-100 dark:bg-zinc-700 rounded-lg overflow-hidden"
+                                            style={{
+                                                width: '280px',
+                                                height: '200px',
+                                                cursor: isDragging ? 'grabbing' : 'grab'
+                                            }}
+                                            onMouseDown={handleMouseDown}
+                                            onMouseMove={handleMouseMove}
+                                            onMouseUp={handleMouseUp}
+                                            onMouseLeave={handleMouseUp}
+                                        >
+                                            {/* 图片容器 */}
+                                            <div
+                                                className="absolute inset-0 flex items-center justify-center"
+                                                style={{
+                                                    transform: `translate(${cropData.x}px, ${cropData.y}px) scale(${cropData.scale})`,
+                                                    transformOrigin: '140px 100px', // 容器中心点 (280px/2, 200px/2)
+                                                    transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+                                                }}
+                                            >
+                                                <img
+                                                    src={card.imageUrl}
+                                                    alt="角色图片"
+                                                    className="pointer-events-none max-w-none max-h-none object-contain"
+                                                    style={{
+                                                        width: 'auto',
+                                                        height: '180px', // 稍小于容器高度
+                                                    }}
+                                                    onLoad={handleImageLoad}
+                                                    onError={() => setImageLoaded(false)}
+                                                />
+                                            </div>
+
+                                            {/* 圆形裁切预览区域 - 固定在容器中心 */}
+                                            <div
+                                                className="absolute border-4 border-white rounded-full pointer-events-none z-10"
+                                                style={{
+                                                    width: '80px',
+                                                    height: '80px',
+                                                    left: '50%',
+                                                    top: '50%',
+                                                    transform: 'translate(-50%, -50%)',
+                                                    boxShadow: 'inset 0 0 0 2px rgba(59, 130, 246, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.4)'
+                                                }}
+                                            />
+
+                                            {/* 中心点指示器 */}
+                                            <div
+                                                className="absolute w-2 h-2 bg-blue-400 rounded-full pointer-events-none z-10"
+                                                style={{
+                                                    left: '50%',
+                                                    top: '50%',
+                                                    transform: 'translate(-50%, -50%)'
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* 控制按钮 */}
+                                        <div className="flex items-center justify-between mt-2">
+                                            <span className="text-xs text-gray-500 dark:text-zinc-400">拖拽调整位置，圆圈内容将用作头像</span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleZoomOut}
+                                                    className="p-1 bg-gray-200 dark:bg-zinc-600 rounded text-gray-700 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-500 text-xs"
+                                                >
+                                                    −
+                                                </button>
+                                                <span className="text-xs text-gray-500 dark:text-zinc-400 min-w-[3rem] text-center">
+                                                    {Math.round(cropData.scale * 100)}%
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleZoomIn}
+                                                    className="p-1 bg-gray-200 dark:bg-zinc-600 rounded text-gray-700 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-500 text-xs"
+                                                >
+                                                    +
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleResetZoom}
+                                                    className="px-2 py-1 text-xs bg-gray-200 dark:bg-zinc-600 rounded text-gray-700 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-500"
+                                                >
+                                                    重置
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 右侧 - 头像预览 */}
+                                    <div className="w-32">
+                                        <div className="text-center">
+                                            <p className="text-xs text-gray-600 dark:text-zinc-400 mb-2">头像效果</p>
+
+                                            {/* 主预览 (64px) */}
+                                            {card.imageUrl && imageLoaded && (
+                                                <AvatarPreview
+                                                    imageUrl={card.imageUrl}
+                                                    cropData={cropData}
+                                                    diameter={64}
+                                                    alt="主头像预览"
+                                                    className="border-2 border-gray-300 dark:border-zinc-600 mx-auto mb-3"
+                                                />
+                                            )}
+
+                                            {/* 小尺寸预览 (32px) */}
+                                            {card.imageUrl && imageLoaded && (
+                                                <AvatarPreview
+                                                    imageUrl={card.imageUrl}
+                                                    cropData={cropData}
+                                                    diameter={32}
+                                                    alt="小头像预览"
+                                                    className="border border-gray-300 dark:border-zinc-600 mx-auto"
+                                                />
+                                            )}
+                                            <p className="text-xs text-gray-500 dark:text-zinc-500 mt-1">32px</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1146,8 +1374,14 @@ const CreatePage: React.FC = () => {
                 confirmText={t.delete || 'Delete'}
                 cancelText={t.cancel || 'Cancel'}
             />
+
         </>
     );
 };
 
 export default CreatePage;
+
+
+
+
+

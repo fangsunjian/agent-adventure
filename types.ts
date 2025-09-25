@@ -159,6 +159,12 @@ export interface HtmlComponentData {
   previewUrl?: string; // 运行时预览URL
 }
 
+export interface AvatarCropData {
+  x: number;
+  y: number;
+  scale: number;
+}
+
 export interface LibraryCard {
   id: string;
   type: LibraryCardType;
@@ -171,6 +177,9 @@ export interface LibraryCard {
   mapLocations?: MapLocation[];
   // HTML component-specific fields
   htmlData?: HtmlComponentData;
+  // Character-specific fields
+  imageUrl?: string;
+  avatarCrop?: AvatarCropData;
 }
 
 // This type represents the data structure used within the React app (camelCase)
@@ -255,3 +264,7 @@ export interface DialogueModalProps {
   onSkip: () => void;
   onComplete: () => void;
 }
+
+
+
+

@@ -10,6 +10,7 @@ import { simpleUUID, translations } from '../constants';
 import type { HtmlComponentData, Language, LibraryCard, LibraryCardType, MapLocation } from '../types';
 import ConfirmationDialog from './ConfirmationDialog';
 import HtmlComponentEditor from './HtmlComponentEditor';
+import ImageCropModal from './ImageCropModal';
 import { CloseIcon, MaximizeIcon, MinimizeIcon, TrashIcon } from './icons';
 
 interface LibraryCardEditorModalProps {
@@ -183,6 +184,9 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   // Location display options
   const [showLocationLabels, setShowLocationLabels] = useState(false);
 
+  // Image crop modal state
+  const [showImageCropModal, setShowImageCropModal] = useState(false);
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -242,6 +246,11 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
   const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const keywords = e.target.value.split(',').map(kw => kw.trim()).filter(Boolean);
     updateCard(prev => ({...prev, keywords}));
+  };
+
+  const handleSaveCrop = (cropData: { x: number; y: number; scale: number }) => {
+    updateCard(prev => ({...prev, avatarCrop: cropData}));
+    setShowImageCropModal(false);
   };
 
 
@@ -572,6 +581,34 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                   </select>
                 </div>
               </>
+            )}
+            {currentCard.type === 'character' && (
+                <div className="pt-2">
+                    <label htmlFor="card-image-url" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">角色图片</label>
+                    <input
+                        type="text"
+                        id="card-image-url"
+                        value={currentCard.imageUrl || ''}
+                        onChange={e => {
+                            updateCard(prev => ({...prev, imageUrl: e.target.value}));
+                        }}
+                        placeholder="请输入图片地址"
+                        className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    {currentCard.imageUrl && (
+                        <div className="mt-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowImageCropModal(true);
+                                }}
+                                className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                            >
+                                预览和裁切头像
+                            </button>
+                        </div>
+                    )}
+                </div>
             )}
             {currentCard.type === 'custom' && (
                 <div className="pt-2">
@@ -954,6 +991,17 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
         confirmText={t.delete}
         cancelText={t.cancel}
       />
+
+      {/* Image Crop Modal */}
+      {showImageCropModal && currentCard.imageUrl && (
+        <ImageCropModal
+          isOpen={showImageCropModal}
+          imageUrl={currentCard.imageUrl}
+          onSave={handleSaveCrop}
+          onClose={() => setShowImageCropModal(false)}
+          initialCrop={currentCard.avatarCrop || { x: 0, y: 0, scale: 1 }}
+        />
+      )}
     </>
   );
 };

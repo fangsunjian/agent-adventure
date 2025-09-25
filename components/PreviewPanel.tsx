@@ -4,6 +4,7 @@ import { translations } from '../constants';
 import { CloseIcon, MaximizeIcon, MinimizeIcon } from './icons';
 import MapPreview from './MapPreview';
 import HtmlPreview from './HtmlPreview';
+import CharacterPreview from './CharacterPreview';
 
 // 预览组件的通用接口
 interface PreviewComponentProps {
@@ -64,6 +65,18 @@ const GenericPreview: React.FC<PreviewComponentProps> = ({ card, language, class
   );
 };
 
+// 角色预览组件包装器
+const CharacterPreviewWrapper: React.FC<PreviewComponentProps> = ({ card, language, onUpdate, className }) => {
+  return (
+    <CharacterPreview
+      card={card}
+      language={language}
+      onUpdate={onUpdate}
+      className={className}
+    />
+  );
+};
+
 // 预览渲染器 - 根据卡片类型选择对应的预览组件
 const PreviewRenderer: React.FC<PreviewComponentProps> = ({ card, language, onUpdate, className }) => {
   switch (card.type) {
@@ -71,9 +84,9 @@ const PreviewRenderer: React.FC<PreviewComponentProps> = ({ card, language, onUp
       return <MapPreviewWrapper card={card} language={language} onUpdate={onUpdate} className={className} />;
     case 'html':
       return <HtmlComponentPreview card={card} language={language} onUpdate={onUpdate} className={className} />;
+    case 'character':
+      return <CharacterPreviewWrapper card={card} language={language} onUpdate={onUpdate} className={className} />;
     // 未来扩展其他类型
-    // case 'character':
-    //   return <CharacterPreview card={card} language={language} onUpdate={onUpdate} className={className} />;
     // case 'location':
     //   return <LocationPreview card={card} language={language} onUpdate={onUpdate} className={className} />;
     default:
@@ -139,7 +152,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <div className="flex items-center justify-center h-full text-gray-500 dark:text-zinc-400">
             <div className="text-center">
               <p className="text-sm">选择资料卡查看预览</p>
-              <p className="text-xs mt-1 text-gray-400">支持地图、HTML组件等类型</p>
+              <p className="text-xs mt-1 text-gray-400">支持角色、地图、HTML组件等类型</p>
             </div>
           </div>
         )}
