@@ -19,6 +19,7 @@ interface LibraryCardEditorModalProps {
   onClose: () => void;
   language: Language;
   onCardUpdate?: (card: LibraryCard) => void; // Optional callback for real-time updates
+  isDesktop?: boolean; // 标识是否为桌面模式，用于控制HTML编辑器预览显示
 }
 
 const createNewCard = (): LibraryCard => ({
@@ -144,7 +145,7 @@ const LocationEditModal: React.FC<LocationEditModalProps> = ({ isOpen, location,
   );
 };
 
-const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language, onCardUpdate }) => {
+const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, onSave, onDelete, onClose, language, onCardUpdate, isDesktop = false }) => {
   const t = translations[language];
   const [currentCard, setCurrentCard] = useState<LibraryCard>(card ? JSON.parse(JSON.stringify(card)) : createNewCard());
   const [isDirty, setIsDirty] = useState(false);
@@ -865,6 +866,7 @@ const LibraryCardEditorModal: React.FC<LibraryCardEditorModalProps> = ({ card, o
                             }));
                         }}
                         isFullscreen={isFullscreen}
+                        showPreview={!isDesktop} // 桌面模式不显示内置预览，使用右侧PreviewPanel
                     />
                 </div>
             )}

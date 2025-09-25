@@ -6,11 +6,12 @@ interface HtmlComponentEditorProps {
   htmlData: HtmlComponentData;
   onChange: (htmlData: HtmlComponentData) => void;
   isFullscreen?: boolean;
+  showPreview?: boolean; // 控制是否显示内置预览窗口
 }
 
 type EditorTab = 'html' | 'css' | 'js';
 
-const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onChange, isFullscreen = false }) => {
+const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onChange, isFullscreen = false, showPreview = true }) => {
   const [activeTab, setActiveTab] = useState<EditorTab>('html');
   const [srcDoc, setSrcDoc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -732,9 +733,9 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
 
   return (
     <div className={isFullscreen ? 'h-full flex flex-col' : 'space-y-4'}>
-      <div className={`${isFullscreen ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 flex-grow min-h-0' : 'flex flex-col gap-4'}`}>
+      <div className={`${isFullscreen && showPreview ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 flex-grow min-h-0' : 'flex flex-col gap-4'}`}>
         {/* Monaco 代码编辑器 */}
-        <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'}`}>
+        <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'} ${!showPreview && isFullscreen ? 'col-span-full' : ''}`}>
           {/* 标签页 */}
           <div className="flex bg-gray-200 dark:bg-zinc-900">
             {(['html', 'css', 'js'] as EditorTab[]).map(tab => (
@@ -766,26 +767,28 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
           </div>
         </div>
 
-        {/* 预览区 */}
-        <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'}`}>
-          <div className="bg-gray-200 dark:bg-zinc-900 p-2 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-2">
-              <i className="fas fa-eye"></i>
-              <span>实时预览</span>
-            </h3>
+        {/* 预览区 - 只在showPreview为true时显示 */}
+        {showPreview && (
+          <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'}`}>
+            <div className="bg-gray-200 dark:bg-zinc-900 p-2 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center space-x-2">
+                <i className="fas fa-eye"></i>
+                <span>实时预览</span>
+              </h3>
+            </div>
+
+            <div className="flex-grow bg-white">
+              <iframe
+                ref={iframeRef}
+                srcDoc={srcDoc}
+                title="HTML组件预览"
+                sandbox="allow-scripts allow-modals"
+                className="w-full h-full border-0"
+                loading="lazy"
+              />
+            </div>
           </div>
-          
-          <div className="flex-grow bg-white">
-            <iframe
-              ref={iframeRef}
-              srcDoc={srcDoc}
-              title="HTML组件预览"
-              sandbox="allow-scripts allow-modals"
-              className="w-full h-full border-0"
-              loading="lazy"
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* 工具提示 */}

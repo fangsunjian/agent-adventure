@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Story, LibraryCard, LibraryCardType, Language } from '../../types';
+import type { Story, LibraryCard, LibraryCardType, Language, HtmlComponentData } from '../../types';
 import { translations, simpleUUID } from '../../constants';
 import { CloseIcon, PlusIcon, UploadIcon, DownloadIcon, SaveIcon, TrashIcon } from '../../components/icons';
 import ConfirmationDialog from '../../components/ConfirmationDialog';
 import LibraryCardEditorModal from '../../components/LibraryCardEditorModal';
+import PreviewPanel from '../../components/PreviewPanel';
+import HtmlComponentEditor from '../../components/HtmlComponentEditor';
+import MapEditor from '../../components/MapEditor';
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSaveStory, useStory } from '../hooks/useStories';
@@ -71,21 +74,24 @@ const CreatePage: React.FC = () => {
     const [sidebarSelection, setSidebarSelection] = useState<SidebarSelection>('basic');
     const [showAddCardModal, setShowAddCardModal] = useState(false);
 
-    // Track current editing card state for desktop inline editor
-    const [currentEditingCardData, setCurrentEditingCardData] = useState<Record<string, LibraryCard>>({});
+    // Preview panel states
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewMaximized, setPreviewMaximized] = useState(false);
 
-    // Ref to store inline editor instances for getting current data
-    const inlineEditorRefs = useRef<Record<string, { getCurrentData: () => LibraryCard }>>({});
+    // Desktop card editing states - replaces UniversalInlineEditor
+    const [desktopEditingCard, setDesktopEditingCard] = useState<LibraryCard | null>(null);
+    const [desktopCardIsDirty, setDesktopCardIsDirty] = useState(false);
 
-    // CHECK: 1024px 作为桌面版断点是否合适
+    // 页面加载时检测设备类型，之后不再动态切换
     useEffect(() => {
         const checkIsDesktop = () => {
-            setIsDesktop(window.innerWidth >= 1024);
+            const isDesktopDevice = window.innerWidth >= 1024;
+            setIsDesktop(isDesktopDevice);
+            console.log('Device type detected:', isDesktopDevice ? 'Desktop' : 'Mobile');
         };
 
         checkIsDesktop();
-        window.addEventListener('resize', checkIsDesktop);
-        return () => window.removeEventListener('resize', checkIsDesktop);
+        // 移除resize监听器，只在页面刷新时检测一次
     }, []);
 
     // Load story data when editing
@@ -275,33 +281,64 @@ const CreatePage: React.FC = () => {
     };
 
     const handleCardSelect = (cardId: string) => {
+        const card = story.library.find(c => c.id === cardId);
+        if (!card) return;
+
         if (isDesktop) {
             setSidebarSelection({ type: 'card', cardId });
+            // 设置桌面版编辑状态
+            setDesktopEditingCard(JSON.parse(JSON.stringify(card)));
+            setDesktopCardIsDirty(false);
         } else {
-            const card = story.library.find(c => c.id === cardId);
-            if (card) {
-                setEditingCard(card);
+            setEditingCard(card);
+        }
+    };
+
+    // Desktop card editing handlers
+    const updateDesktopCard = (updater: (prev: LibraryCard) => LibraryCard) => {
+        if (desktopEditingCard) {
+            setDesktopEditingCard(prev => {
+                const updated = updater(prev!);
+                return updated;
+            });
+            setDesktopCardIsDirty(true);
+        }
+    };
+
+    const saveDesktopCard = async () => {
+        if (desktopEditingCard && desktopCardIsDirty) {
+            try {
+                await handleSaveCard(desktopEditingCard);
+                setDesktopCardIsDirty(false);
+            } catch (error) {
+                console.error('Failed to save card:', error);
             }
         }
     };
 
-    // Handle card data updates from inline editor
-    const handleCardDataUpdate = React.useCallback((updatedCard: LibraryCard) => {
-        setCurrentEditingCardData(prev => ({
-            ...prev,
-            [updatedCard.id]: updatedCard
-        }));
-    }, []);
-
-    // Get current card data (either from editing state, inline editor, or story)
-    const getCurrentCardData = (cardId: string): LibraryCard | undefined => {
-        // First try to get data from inline editor ref (most current)
-        if (inlineEditorRefs.current[cardId]) {
-            return inlineEditorRefs.current[cardId].getCurrentData();
+    // Get current card for preview
+    const getCurrentPreviewCard = (): LibraryCard | null => {
+        if (typeof sidebarSelection === 'object') {
+            // 优先返回正在编辑的卡片数据
+            return desktopEditingCard || story.library.find(c => c.id === sidebarSelection.cardId) || null;
         }
-        // Fallback to editing state or story
-        return currentEditingCardData[cardId] || story.library.find(c => c.id === cardId);
+        return null;
     };
+
+    // Check if current card supports preview
+    const currentCardSupportsPreview = (): boolean => {
+        const card = getCurrentPreviewCard();
+        if (!card) return false;
+        // Currently supporting map and html types
+        return card.type === 'map' || card.type === 'html';
+    };
+
+    // Auto-show preview when editing supported card types
+    useEffect(() => {
+        if (isDesktop && currentCardSupportsPreview() && !showPreview) {
+            setShowPreview(true);
+        }
+    }, [sidebarSelection, isDesktop]);
 
 
     // Add Card Modal Component
@@ -418,118 +455,158 @@ const CreatePage: React.FC = () => {
         );
     };
 
-    // Universal Inline Editor - wraps existing LibraryCardEditorModal
-    const UniversalInlineEditor = React.memo<{
-        card: LibraryCard;
-        onSave: (card: LibraryCard) => void;
-        onDelete: (cardId: string) => void;
-        language: Language;
-        onCardUpdate: (updatedCard: LibraryCard) => void; // New prop for real-time updates
-        onTriggerSave?: () => void; // External save trigger
-        cardId: string; // For ref management
-    }>(({ card, onSave, onDelete, language, onCardUpdate, cardId }) => {
-        // Store current data for external access
-        const currentDataRef = useRef<LibraryCard>(card);
+    // Desktop inline card editor - complete implementation with all features
+    const renderDesktopCardEditor = (card: LibraryCard) => {
+        const t = translations[settings?.language || 'zh'];
 
-        // Register this editor instance for external access
-        React.useEffect(() => {
-            inlineEditorRefs.current[cardId] = {
-                getCurrentData: () => currentDataRef.current
-            };
-            return () => {
-                delete inlineEditorRefs.current[cardId];
-            };
-        }, [cardId]);
+        const cardTypes: LibraryCardType[] = ['character', 'location', 'item', 'quest', 'setting', 'custom', 'map', 'html'];
+        const typeTranslations: Record<LibraryCardType, string> = {
+            character: t.cardTypeCharacter,
+            location: t.cardTypeLocation,
+            item: t.cardTypeItem,
+            quest: t.cardTypeQuest,
+            setting: t.cardTypeSetting,
+            custom: t.cardTypeCustom,
+            map: t.cardTypeMap,
+            html: t.cardTypeHtml,
+        };
 
-        // Create a wrapper for onCardUpdate to also update our ref
-        const handleCardUpdate = React.useCallback((updatedCard: LibraryCard) => {
-            currentDataRef.current = updatedCard;
-            // Don't call onCardUpdate to prevent re-renders during typing
-        }, []);
-        const handleSave = React.useCallback((updatedCard: LibraryCard) => {
-            onSave(updatedCard);
-        }, [onSave]);
-
-        const handleDelete = React.useCallback(() => {
-            onDelete(card.id);
-        }, [card.id, onDelete]);
-
-        // Create a custom save handler that also updates the parent state
-        const handleCustomSave = React.useCallback((updatedCard: LibraryCard) => {
-            // CRITICAL: Only update parent state when save is explicitly triggered
-            // This prevents render-in-render issues while ensuring data consistency
-            onCardUpdate(updatedCard);
-            // Also call the normal save handler
-            onSave(updatedCard);
-        }, [onSave, onCardUpdate]);
+        const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+            const keywords = e.target.value.split(',').map(kw => kw.trim()).filter(Boolean);
+            updateDesktopCard(prev => ({...prev, keywords}));
+        };
 
         return (
-            <div className="relative bg-transparent">
-                {/* Hide the modal overlay and use inline styling */}
-                <style>{`
-                    /* Ultra-precise targeting: Only affect the main modal overlay */
-                    .inline-editor-wrapper > div[class~="absolute"][class~="inset-0"][class~="bg-black/70"][class~="z-30"] {
-                        position: relative !important;
-                        background: transparent !important;
-                        backdrop-filter: none !important;
-                        padding: 0 !important;
-                        display: block !important;
-                        z-index: auto !important;
-                    }
-
-                    /* Target the main modal content container */
-                    .inline-editor-wrapper > div[class~="absolute"][class~="inset-0"][class~="bg-black/70"][class~="z-30"] > div[class~="bg-white"] {
-                        box-shadow: none !important;
-                        border: none !important;
-                        border-radius: 0 !important;
-                        max-width: none !important;
-                        width: 100% !important;
-                        height: auto !important;
-                        max-height: none !important;
-                        margin: 0 !important;
-                    }
-
-                    /* Hide the main modal header */
-                    .inline-editor-wrapper > div[class~="absolute"][class~="inset-0"][class~="bg-black/70"][class~="z-30"] > div[class~="bg-white"] > header:first-child {
-                        display: none !important;
-                    }
-
-                    /* CRITICAL: Ensure nested modals (z-40) are completely unaffected and display properly */
-                    .inline-editor-wrapper div[class~="absolute"][class~="inset-0"][class~="bg-black/70"][class~="z-40"] {
-                        position: absolute !important;
-                        background: rgba(0, 0, 0, 0.7) !important;
-                        backdrop-filter: blur(4px) !important;
-                        z-index: 40 !important;
-                        display: flex !important;
-                        align-items: center !important;
-                        justify-content: center !important;
-                        inset: 0 !important;
-                    }
-                `}</style>
-
-                <div className="inline-editor-wrapper">
-                    <LibraryCardEditorModal
-                        card={card}
-                        onSave={handleCustomSave}
-                        onDelete={handleDelete}
-                        onClose={() => {}} // No close needed for inline editor
-                        language={language}
-                        onCardUpdate={handleCardUpdate}
+            <div className="space-y-4">
+                {/* Basic card fields */}
+                <div>
+                    <label htmlFor="desktop-card-name" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardName}</label>
+                    <input
+                        type="text"
+                        id="desktop-card-name"
+                        value={card.name}
+                        onChange={e => updateDesktopCard(prev => ({...prev, name: e.target.value}))}
+                        className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
+                </div>
+
+                <div>
+                    <label htmlFor="desktop-card-type" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardType}</label>
+                    <select
+                        id="desktop-card-type"
+                        value={card.type}
+                        onChange={e => updateDesktopCard(prev => ({...prev, type: e.target.value as LibraryCardType}))}
+                        className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    >
+                        {cardTypes.map(type => <option key={type} value={type}>{typeTranslations[type]}</option>)}
+                    </select>
+                </div>
+
+                {/* Custom type name field */}
+                {card.type === 'custom' && (
+                    <div>
+                        <label htmlFor="desktop-card-custom-type-name" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.customTypeName}</label>
+                        <input
+                            type="text"
+                            id="desktop-card-custom-type-name"
+                            value={card.customTypeName || ''}
+                            onChange={e => updateDesktopCard(prev => ({...prev, customTypeName: e.target.value}))}
+                            className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                    </div>
+                )}
+
+                {/* Map editing */}
+                {card.type === 'map' && (
+                    <div className="space-y-4">
+                        <div>
+                            <label htmlFor="desktop-card-map-image-url" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.mapImageUrl}</label>
+                            <input
+                                type="text"
+                                id="desktop-card-map-image-url"
+                                value={card.mapImageUrl || ''}
+                                onChange={e => updateDesktopCard(prev => ({...prev, mapImageUrl: e.target.value}))}
+                                placeholder={t.mapImageUrlPlaceholder}
+                                className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                            />
+                        </div>
+                        <MapEditor
+                            card={card}
+                            language={settings.language}
+                            onUpdate={(updatedCard) => {
+                                setDesktopEditingCard(updatedCard);
+                                setDesktopCardIsDirty(true);
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* HTML component editing */}
+                {card.type === 'html' && (
+                    <div className="space-y-4">
+                        <HtmlComponentEditor
+                            htmlData={card.htmlData || { html: '', css: '', js: '' }}
+                            onChange={(htmlData) => {
+                                updateDesktopCard(prev => ({ ...prev, htmlData }));
+                            }}
+                            isFullscreen={false}
+                            showPreview={false} // 不显示内置预览，右侧面板显示
+                        />
+                    </div>
+                )}
+
+                {/* Keywords field */}
+                <div>
+                    <label htmlFor="desktop-card-keywords" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardKeywords}</label>
+                    <input
+                        type="text"
+                        id="desktop-card-keywords"
+                        value={card.keywords.join(', ')}
+                        onChange={handleKeywordsChange}
+                        placeholder={t.keywordsPlaceholder}
+                        className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                </div>
+
+                {/* Content field - only show for non-HTML and non-map types that use it for complex editing */}
+                {card.type !== 'html' && (
+                    <div>
+                        <label htmlFor="desktop-card-content" className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{t.cardContent}</label>
+                        <textarea
+                            id="desktop-card-content"
+                            value={card.content}
+                            onChange={e => {
+                                const newContent = e.target.value.slice(0, 1000);
+                                updateDesktopCard(prev => ({...prev, content: newContent}));
+                            }}
+                            rows={8}
+                            className="w-full p-2 bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                        />
+                        <p className="text-right text-xs text-gray-500 dark:text-zinc-400 mt-1">{t.characterCount}: {card.content.length} / 1000</p>
+                    </div>
+                )}
+
+                {/* Save and delete buttons */}
+                <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-zinc-800">
+                    <button
+                        onClick={() => handleDeleteCard(card.id)}
+                        className="flex items-center gap-2 text-sm text-red-600 hover:text-red-800 font-semibold"
+                    >
+                        <TrashIcon className="w-4 h-4" />
+                        {t.deleteCard}
+                    </button>
+
+                    <button
+                        onClick={saveDesktopCard}
+                        disabled={!desktopCardIsDirty}
+                        className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {t.save}
+                    </button>
                 </div>
             </div>
         );
-    }, (prevProps, nextProps) => {
-        // Return true if props are equal (no re-render needed)
-        // Return false if props are different (re-render needed)
-        return prevProps.card.id === nextProps.card.id &&
-               prevProps.cardId === nextProps.cardId &&
-               prevProps.language === nextProps.language &&
-               prevProps.onSave === nextProps.onSave &&
-               prevProps.onDelete === nextProps.onDelete &&
-               prevProps.onCardUpdate === nextProps.onCardUpdate &&
-               JSON.stringify(prevProps.card) === JSON.stringify(nextProps.card);
-    });
+    };
 
     // Desktop Sidebar Component
     const renderSidebar = () => {
@@ -626,12 +703,10 @@ const CreatePage: React.FC = () => {
                                                         // Do nothing - user should save in modal
                                                         return;
                                                     }
-                                                    // For desktop inline editing, use the current edited data
-                                                    if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id) {
-                                                        const currentCardData = getCurrentCardData(card.id);
-                                                        if (currentCardData) {
-                                                            handleSaveCard(currentCardData);
-                                                        }
+                                                    // For desktop editing, use the current edited data
+                                                    if (isDesktop && typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id && desktopEditingCard) {
+                                                        handleSaveCard(desktopEditingCard);
+                                                        setDesktopCardIsDirty(false);
                                                         return;
                                                     }
                                                     handleSaveCard(card);
@@ -712,9 +787,7 @@ const CreatePage: React.FC = () => {
             );
         } else if (typeof sidebarSelection === 'object') {
             // Show card editor
-            const card = story.library.find(c => c.id === sidebarSelection.cardId);
-
-            if (!card) {
+            if (!desktopEditingCard) {
                 return (
                     <div className="flex items-center justify-center h-full text-gray-500 dark:text-zinc-400">
                         Card not found
@@ -722,24 +795,24 @@ const CreatePage: React.FC = () => {
                 );
             }
 
-            // Render inline card editor for desktop
+            // Render direct card editor for desktop
             return (
                 <div className="h-full flex flex-col">
                     {/* Card Editor Header */}
                     <header className="p-6 border-b border-gray-200 dark:border-zinc-800">
-                        <h3 className="text-lg font-semibold">{t.editCard}: {card.name || t.unnamedCard}</h3>
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-semibold">{t.editCard}: {desktopEditingCard.name || t.unnamedCard}</h3>
+                            {desktopCardIsDirty && (
+                                <span className="text-sm text-orange-600 dark:text-orange-400">
+                                    * 未保存的更改
+                                </span>
+                            )}
+                        </div>
                     </header>
 
                     {/* Card Editor Content */}
                     <div className="flex-1 overflow-y-auto p-6">
-                        <UniversalInlineEditor
-                            card={card}
-                            cardId={card.id}
-                            onSave={handleSaveCard}
-                            onDelete={handleDeleteCard}
-                            language={settings.language}
-                            onCardUpdate={handleCardDataUpdate}
-                        />
+                        {renderDesktopCardEditor(desktopEditingCard)}
                     </div>
                 </div>
             );
@@ -841,11 +914,24 @@ const CreatePage: React.FC = () => {
     return (
         <>
             {isDesktop ? (
-                // Desktop Layout: Sidebar + Content
+                // Desktop Layout: Sidebar + Content + Preview (three columns)
                 <div className="fixed inset-0 bg-gray-50 dark:bg-zinc-950 flex h-screen">
                     {renderSidebar()}
-                    <main className="flex-1 bg-white dark:bg-zinc-900">
-                        {renderDesktopContent()}
+                    <main className={`flex-1 bg-white dark:bg-zinc-900 ${showPreview && !previewMaximized ? 'flex' : ''}`}>
+                        <div className={showPreview && !previewMaximized ? 'flex-1' : 'w-full'}>
+                            {renderDesktopContent()}
+                        </div>
+                        {showPreview && (
+                            <PreviewPanel
+                                card={getCurrentPreviewCard()}
+                                language={settings.language}
+                                isVisible={showPreview}
+                                isMaximized={previewMaximized}
+                                onToggleVisible={() => setShowPreview(false)}
+                                onToggleMaximize={() => setPreviewMaximized(!previewMaximized)}
+                                className={previewMaximized ? 'fixed inset-0 z-50' : 'w-96 min-w-96'}
+                            />
+                        )}
                     </main>
                 </div>
             ) : (
@@ -905,6 +991,7 @@ const CreatePage: React.FC = () => {
                     onDelete={handleDeleteCard}
                     onClose={() => setEditingCard(null)}
                     language={settings.language}
+                    isDesktop={false} // 明确标识为移动模式，保留HTML编辑器内置预览
                 />
             )}
 
