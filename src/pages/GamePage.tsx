@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStory } from '../hooks/useStories';
+import { usePlaythroughs, useSavePlaythrough } from '../hooks/usePlaythroughs';
 import ActionsPanel from '../../components/ActionsPanel';
 import ConfirmationDialog from '../../components/ConfirmationDialog';
 import DebugPanel from '../../components/DebugPanel';
@@ -14,13 +15,33 @@ import PlaceholderInputModal from '../../components/PlaceholderInputModal';
 import Resizer from '../../components/Resizer';
 import SceneDisplay from '../../components/SceneDisplay';
 import SummaryPanel from '../../components/SummaryPanel';
-import { simpleUUID, translations } from '../../constants';
+import { simpleUUID, translations, DEFAULT_SETTINGS } from '../../constants';
+import { useUserSettings } from '../../hooks/useUserSettings';
 import { evaluateAndGenerateMilestone, generateImage, getNextSceneWithGameEngine, getNextSceneWithTools, type ToolHandler } from '../../services/aiService';
 import { GameEngine } from '../../services/GameEngine';
 import { GameToolRegistry } from '../../services/GameToolRegistry';
-import type { DebugLogEntry, DetectedPlaceholder, GameSettings, HistoryItem, Memories, Playthrough, Scene, SceneFragment, Story } from '../../types';
+import type { DebugLogEntry, DetectedPlaceholder, GameSettings, HistoryItem, LibraryCard, Memories, Playthrough, Scene, SceneFragment, Story } from '../../types';
 import { GameStatus } from '../../types';
+import { useAuth } from '../../contexts/AuthContext';
 
+const mergeGameSettings = (overrides?: Partial<GameSettings>): GameSettings => {
+  const base: GameSettings = {
+    ...DEFAULT_SETTINGS,
+    llm: { ...DEFAULT_SETTINGS.llm },
+    systemInstructions: [...DEFAULT_SETTINGS.systemInstructions],
+  };
+
+  if (!overrides) {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...overrides,
+    llm: { ...base.llm, ...(overrides.llm || {}) },
+    systemInstructions: overrides.systemInstructions ? [...overrides.systemInstructions] : base.systemInstructions,
+  };
+};
 const showDebug = (window as any).DEBUG_MODE === true;
 
 // Simple placeholder replacement, e.g., [[id:Character Name]] -> Character Name
@@ -33,42 +54,95 @@ export default function GamePage(): React.ReactNode {
   const { storyId } = useParams<{ storyId: string }>();
   const navigate = useNavigate();
 
+  // Auth hook
+  const { user } = useAuth();
+
   // Data hooks
   const { data: activeStory, isLoading: storyLoading, error: storyError } = useStory(storyId || null);
+  const { data: playthroughs = [] } = usePlaythroughs(user?.id);
+  const savePlaythroughMutation = useSavePlaythrough();
 
   // Mock settings - TODO: Implement proper settings management
-  const [settings, setSettings] = useState<GameSettings>({
-    language: 'zh' as const,
-    systemInstructions: [],
-    enableImageGeneration: false,
-    bubbleOpacity: 100,
-    dialogueWindowOpacity: 100,
-    provider: 'gemini' as const,
-    enableDialogueTools: false,
-    model: 'gemini-1.5-flash',
-    maxTokens: 8192,
-    temperature: 0.7,
-    topP: 0.95,
-    topK: 64,
-  });
+  const { settings: storedSettings, setSettings: setStoredUserSettings } = useUserSettings();
 
-  // Mock userId for now - should come from auth context
-  const userId = 'mock-user-id';
+  const [settings, setSettings] = useState<GameSettings>(() => mergeGameSettings(storedSettings));
+
+  useEffect(() => {
+    setSettings(mergeGameSettings(storedSettings));
+  }, [storedSettings]);
+
+  const handleSettingsChange = useCallback((nextSettings: GameSettings) => {
+    const merged = mergeGameSettings(nextSettings);
+    setSettings(merged);
+    setStoredUserSettings(merged);
+  }, [setStoredUserSettings]);
+
+  // Get userId from auth context
+  const userId = user?.id || 'anonymous';
 
   // Exit handler
   const onExit = useCallback(() => {
     navigate('/');
   }, [navigate]);
 
-  // Save playthrough handler - temporary mock implementation
-  const onSavePlaythrough = useCallback((playthrough: Playthrough) => {
-    // TODO: Implement actual playthrough saving logic
-    console.log('Saving playthrough:', playthrough);
-  }, []);
+  // Find existing playthrough for this story
+  const existingPlaythrough = playthroughs.find(p => p.storyId === storyId && p.userId === userId);
+
+  // Save playthrough handler
+  const onSavePlaythrough = useCallback(async (playthrough: Playthrough) => {
+    try {
+      // Use the existing playthrough ID if available, otherwise create new one
+      const playthroughToSave = {
+        ...playthrough,
+        id: existingPlaythrough?.id,
+        user_id: userId,
+        story_id: storyId,
+        game_state: {
+          history: playthrough.history,
+          summaries: playthrough.summaries,
+          grandSummaries: playthrough.grandSummaries,
+          milestoneSummaries: playthrough.milestoneSummaries,
+          turn: playthrough.turn,
+          userName: playthrough.userName,
+          charName: playthrough.charName,
+          gameStatus: playthrough.gameStatus,
+          dialogue: playthrough.dialogue,
+          placeholderValues: playthrough.placeholderValues,
+          playerLocation: playthrough.playerLocation,
+          mapData: playthrough.mapData,
+          hasUnviewedLocationChange: playthrough.hasUnviewedLocationChange,
+        }
+      };
+
+      await savePlaythroughMutation.mutateAsync(playthroughToSave);
+    } catch (error) {
+      console.error('Failed to save playthrough:', error);
+    }
+  }, [existingPlaythrough?.id, userId, storyId, savePlaythroughMutation]);
 
   // Game state initialization - ALL HOOKS MUST BE BEFORE CONDITIONAL RETURNS
   const [gameState, setGameState] = useState<Omit<Playthrough, 'storyId'>>(() => {
-    // TODO: Load playthrough from persistent storage if needed
+    // Load from existing playthrough if available
+    if (existingPlaythrough) {
+      return {
+        userId: existingPlaythrough.userId,
+        history: existingPlaythrough.history || [],
+        summaries: existingPlaythrough.summaries || [],
+        grandSummaries: existingPlaythrough.grandSummaries || [],
+        milestoneSummaries: existingPlaythrough.milestoneSummaries || [],
+        turn: existingPlaythrough.turn || 0,
+        userName: existingPlaythrough.userName || 'Player',
+        charName: existingPlaythrough.charName || 'Game Master',
+        gameStatus: existingPlaythrough.gameStatus || GameStatus.Idle,
+        dialogue: existingPlaythrough.dialogue || null,
+        placeholderValues: existingPlaythrough.placeholderValues || {},
+        playerLocation: existingPlaythrough.playerLocation || null,
+        mapData: existingPlaythrough.mapData || null,
+        hasUnviewedLocationChange: existingPlaythrough.hasUnviewedLocationChange || false,
+      };
+    }
+
+    // Default new game state
     return {
       userId: userId,
       history: [],
@@ -98,8 +172,8 @@ export default function GamePage(): React.ReactNode {
   const [selectedHtmlComponent, setSelectedHtmlComponent] = useState<LibraryCard | null>(null);
   const [detectedPlaceholders, setDetectedPlaceholders] = useState<DetectedPlaceholder[]>([]);
   const [lastPlaceholderValues, setLastPlaceholderValues] = useState<Record<string, string>>(() => {
-    // TODO: Initialize with values from stored playthrough if available
-    return {};
+    // Initialize with values from existing playthrough if available
+    return existingPlaythrough?.placeholderValues || {};
   });
   const [processedStory, setProcessedStory] = useState<Story | null>(null);
   
@@ -363,42 +437,48 @@ export default function GamePage(): React.ReactNode {
     return Array.from(placeholders.values());
   }, []);
 
+  // Create a function to apply placeholder values to story content
+  const applyPlaceholdersToStory = useCallback((story: Story, placeholderValues: Record<string, string>): Story => {
+    const replacedStory = JSON.parse(JSON.stringify(story));
+
+    const replace = (text: string) => {
+        let newText = text;
+        for (const key in placeholderValues) {
+            if (Object.prototype.hasOwnProperty.call(placeholderValues, key)) {
+                const regex = new RegExp(`{{\\s*${key}(?::[^}}]+)?\\s*}}`, 'g');
+                newText = newText.replace(regex, placeholderValues[key]);
+            }
+        }
+        return newText;
+    };
+
+    replacedStory.backgroundSetting = replace(replacedStory.backgroundSetting);
+    replacedStory.openingMonologue = replace(replacedStory.openingMonologue);
+    replacedStory.openingAction = replace(replacedStory.openingAction);
+    replacedStory.library = replacedStory.library.map(card => ({
+        ...card,
+        content: replace(card.content),
+    }));
+
+    return replacedStory;
+  }, []);
+
   const handlePlaceholderSubmit = useCallback((names: Record<string, string>) => {
       // Save the values for next time
       setLastPlaceholderValues(names);
-      
+
       // Update gameState with placeholder values for persistence
       setGameState(prev => ({
         ...prev,
         placeholderValues: names
       }));
-      
-      const replacedStory = JSON.parse(JSON.stringify(activeStory));
-      
-      const replace = (text: string) => {
-          let newText = text;
-          for (const key in names) {
-              if (Object.prototype.hasOwnProperty.call(names, key)) {
-                  const regex = new RegExp(`{{\\s*${key}(?::[^}}]+)?\\s*}}`, 'g');
-                  newText = newText.replace(regex, names[key]);
-              }
-          }
-          return newText;
-      };
-      
-      replacedStory.backgroundSetting = replace(replacedStory.backgroundSetting);
-      replacedStory.openingMonologue = replace(replacedStory.openingMonologue);
-      replacedStory.openingAction = replace(replacedStory.openingAction);
-      replacedStory.library = replacedStory.library.map(card => ({
-          ...card,
-          content: replace(card.content),
-      }));
 
+      const replacedStory = applyPlaceholdersToStory(activeStory, names);
       setProcessedStory(replacedStory);
       startNewSession(replacedStory, names.user, names.char);
-      
+
       setIsPlaceholderModalOpen(false);
-  }, [activeStory, startNewSession]);
+  }, [activeStory, startNewSession, applyPlaceholdersToStory]);
 
   const handlePlaceholderCancel = useCallback(() => {
       setIsPlaceholderModalOpen(false);
@@ -408,16 +488,31 @@ export default function GamePage(): React.ReactNode {
   useEffect(() => {
     if (!activeStory) return;
 
+    // If continuing an existing game with saved placeholder values
+    if (existingPlaythrough && gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0) {
+      // Apply saved placeholder values and set processed story
+      const replacedStory = applyPlaceholdersToStory(activeStory, gameState.placeholderValues);
+      setProcessedStory(replacedStory);
+
+      // Don't start a new session since we're continuing an existing game
+      console.log('Continuing game with existing playthrough and placeholder values');
+      return;
+    }
+
+    // For new games, check if placeholders need to be filled
     const placeholders = scanForPlaceholders(activeStory);
     if (placeholders.length > 0) {
       setDetectedPlaceholders(placeholders);
       setIsPlaceholderModalOpen(true);
     } else {
       setProcessedStory(activeStory);
-      startNewSession(activeStory);
+      // Only start new session if no existing playthrough
+      if (!existingPlaythrough) {
+        startNewSession(activeStory);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStory]);
+  }, [activeStory, existingPlaythrough]);
   
   useEffect(() => {
       if (activeStory && (gameState.gameStatus !== GameStatus.Idle || gameState.history.length > 0)) {
@@ -456,14 +551,16 @@ export default function GamePage(): React.ReactNode {
 
   const processAction = async (action: string, currentState: typeof gameState, customSettings?: GameSettings, silent?: boolean) => {
     if (!processedStory) return;
-    
+
     setGameState(s => ({...s, gameStatus: GameStatus.Loading}));
-    
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    
+
+    let result: Awaited<ReturnType<typeof getNextSceneWithTools>> | Awaited<ReturnType<typeof getNextSceneWithGameEngine>> | null = null;
+
     const isFirstAction = !currentState.history.some(h => h.role === 'user');
-    let settingsToUse = customSettings || settings;
+    let settingsToUse = mergeGameSettings(customSettings || settings);
 
     if (isFirstAction) {
         const tempInstructions = [...settingsToUse.systemInstructions];
@@ -500,7 +597,6 @@ export default function GamePage(): React.ReactNode {
       // For now, use Game Engine if dialog tools are enabled and it's a custom provider
       const useGameEngine = settingsToUse.enableDialogueTools && settingsToUse.provider === 'custom';
       
-      let result;
       if (useGameEngine) {
         console.log('🎮 Using new Game Engine...');
         result = await getNextSceneWithGameEngine(historyForAPI, settingsToUse, memories, activeStory, logCommunication, controller.signal, toolHandler);
@@ -547,6 +643,9 @@ export default function GamePage(): React.ReactNode {
       }
       
       // Check if we have a scene to display (from either tool calls or regular generation)
+      if (!result) {
+        throw new Error('No scene result returned from AI');
+      }
       if (!result.scene) {
         // If no scene but tools were called, this might be a dialogue-only interaction
         if (result.toolCalls && result.toolCalls.length > 0) {
@@ -1255,7 +1354,7 @@ export default function GamePage(): React.ReactNode {
             <div className={`absolute top-0 right-0 h-full w-full max-w-sm z-50 transition-transform duration-300 ease-in-out ${isGameSettingsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <GameSettingsPanel 
                     settings={settings} 
-                    onSettingsChange={setSettings} 
+                    onSettingsChange={handleSettingsChange} 
                     onClose={() => setIsGameSettingsOpen(false)} 
                 />
             </div>
@@ -1319,3 +1418,7 @@ export default function GamePage(): React.ReactNode {
     </div>
   );
 }
+
+
+
+

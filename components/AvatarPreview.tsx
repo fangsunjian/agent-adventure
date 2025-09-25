@@ -22,7 +22,7 @@ const AvatarPreview: React.FC<AvatarPreviewProps> = ({
   imageUrl,
   cropData,
   diameter,
-  alt = '头像预览',
+  alt = 'Avatar preview',
   className = ''
 }) => {
   const effectiveCrop = cropData ?? defaultCrop;

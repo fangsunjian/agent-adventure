@@ -36,8 +36,8 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
         };
       case 'large':
         return {
-          width: '300px',
-          height: '200px',
+          width: '240px',
+          height: '320px',
           avatarSize: 64,
           nameSize: 'text-lg',
           contentSize: 'text-base'
@@ -80,7 +80,7 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
         {/* 背景图片 - 使用角色图片作为背景 */}
         {card.imageUrl && (
           <div
-            className="absolute inset-0 bg-cover bg-center opacity-20 dark:opacity-10"
+            className="absolute inset-0 bg-cover bg-center opacity-20 dark:opacity-100"
             style={{
               backgroundImage: `url(${card.imageUrl})`,
               backgroundSize: 'cover',

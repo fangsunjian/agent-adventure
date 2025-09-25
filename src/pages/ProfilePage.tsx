@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import SettingsModal from '../../components/SettingsModal';
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useStories, useDeleteStory } from '../hooks/useStories';
-import { usePlaythroughs } from '../hooks/usePlaythroughs';
+import { usePlaythroughs, useDeletePlaythrough } from '../hooks/usePlaythroughs';
 import { useNavigate } from 'react-router-dom';
 
 // No props needed - everything will be handled via hooks
@@ -24,6 +24,7 @@ const ProfilePage: React.FC = () => {
     const { data: allStories = [], isLoading: storiesLoading } = useStories(user?.id);
     const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(user?.id);
     const deleteStoryMutation = useDeleteStory();
+    const deletePlaythroughMutation = useDeletePlaythrough();
 
     const t = translations[settings?.language || 'zh'];
     const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
@@ -59,10 +60,17 @@ const ProfilePage: React.FC = () => {
         }
     }, [deleteStoryMutation]);
 
-    const handleDeletePlaythrough = useCallback(async (storyId: string) => {
-        // TODO: Implement playthrough deletion
-        console.log('Delete playthrough for story:', storyId);
-    }, []);
+    const handleDeletePlaythrough = useCallback(async (playthroughId: string) => {
+        try {
+            // Find the playthrough by story ID
+            const playthroughToDelete = playthroughs.find(p => p.storyId === playthroughId);
+            if (playthroughToDelete) {
+                await deletePlaythroughMutation.mutateAsync(playthroughToDelete.id);
+            }
+        } catch (error) {
+            console.error('Failed to delete playthrough:', error);
+        }
+    }, [playthroughs, deletePlaythroughMutation]);
 
     const handleConfirm = () => {
         if (!confirmAction) return;
