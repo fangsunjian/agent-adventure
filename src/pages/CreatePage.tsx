@@ -14,6 +14,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // No props needed - everything handled via hooks
 
+const PREVIEW_PANEL_MIN_WIDTH = 360;
+const DETAIL_PANEL_MIN_WIDTH = 360;
+const DEFAULT_DETAIL_PANEL_WIDTH = 520;
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
 type CreateTab = 'basic' | 'library' | 'plot';
 type SidebarSelection = 'basic' | 'library' | { type: 'card', cardId: string };
 
@@ -77,6 +83,9 @@ const CreatePage: React.FC = () => {
     // Preview panel states
     const [showPreview, setShowPreview] = useState(false);
     const [previewMaximized, setPreviewMaximized] = useState(false);
+    const [desktopContentWidth, setDesktopContentWidth] = useState(DEFAULT_DETAIL_PANEL_WIDTH);
+    const [isResizingDetailPanel, setIsResizingDetailPanel] = useState(false);
+
 
     // Desktop card editing states - replaces UniversalInlineEditor
     const [desktopEditingCard, setDesktopEditingCard] = useState<LibraryCard | null>(null);
@@ -115,13 +124,101 @@ const CreatePage: React.FC = () => {
     
     const formRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const desktopMainRef = useRef<HTMLDivElement>(null);
+    const getClampedDetailWidth = React.useCallback((candidate: number) => {
+        const container = desktopMainRef.current;
+        if (!container) {
+            return candidate;
+        }
+
+        const rect = container.getBoundingClientRect();
+        const sanitizedValue = Number.isFinite(candidate) ? candidate : DEFAULT_DETAIL_PANEL_WIDTH;
+        const available = Math.max(rect.width - PREVIEW_PANEL_MIN_WIDTH, 0);
+        if (available <= 0) {
+            return sanitizedValue;
+        }
+
+        const minWidth = Math.min(DETAIL_PANEL_MIN_WIDTH, available);
+        const maxWidth = Math.max(minWidth, available);
+        return clamp(sanitizedValue, minWidth, maxWidth);
+    }, []);
 
     useEffect(() => {
         const originalStory = JSON.stringify(storyToEdit || createNewStory());
         const currentStory = JSON.stringify(story);
         setIsDirty(originalStory !== currentStory);
     }, [story, storyToEdit]);
-    
+
+    useEffect(() => {
+        if (!showPreview || previewMaximized) {
+            setIsResizingDetailPanel(false);
+            return;
+        }
+
+        const syncWidth = () => {
+            setDesktopContentWidth(prevWidth => {
+                const candidate = Number.isFinite(prevWidth) ? prevWidth : DEFAULT_DETAIL_PANEL_WIDTH;
+                return getClampedDetailWidth(candidate);
+            });
+        };
+
+        syncWidth();
+        window.addEventListener('resize', syncWidth);
+
+        return () => {
+            window.removeEventListener('resize', syncWidth);
+        };
+    }, [showPreview, previewMaximized, getClampedDetailWidth]);
+
+    useEffect(() => {
+        if (!isResizingDetailPanel || !showPreview || previewMaximized) {
+            return;
+        }
+
+        const handlePointerMove = (event: PointerEvent) => {
+            const container = desktopMainRef.current;
+            if (!container) {
+                return;
+            }
+
+            const rect = container.getBoundingClientRect();
+            const desiredWidth = rect.right - event.clientX;
+            const nextWidth = getClampedDetailWidth(desiredWidth);
+            setDesktopContentWidth(nextWidth);
+        };
+
+        const stopResizing = () => setIsResizingDetailPanel(false);
+
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', stopResizing);
+        window.addEventListener('pointercancel', stopResizing);
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'col-resize';
+
+        return () => {
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', stopResizing);
+            window.removeEventListener('pointercancel', stopResizing);
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        };
+    }, [isResizingDetailPanel, showPreview, previewMaximized, getClampedDetailWidth]);
+
+    const shouldShowResizablePreview = showPreview && !previewMaximized;
+    const detailPanelWidth = shouldShowResizablePreview ? Math.max(0, Math.round(desktopContentWidth)) : 0;
+    const detailPanelStyle = shouldShowResizablePreview
+        ? {
+            width: `${detailPanelWidth}px`,
+            minWidth: `${Math.max(0, Math.min(DETAIL_PANEL_MIN_WIDTH, detailPanelWidth))}px`,
+        }
+        : undefined;
+    const detailPanelClassName = shouldShowResizablePreview
+        ? 'h-full flex-shrink-0 overflow-hidden bg-white dark:bg-zinc-900'
+        : 'w-full h-full';
+    const previewPanelClassName = previewMaximized
+        ? 'fixed inset-0 z-50'
+        : 'flex-1 min-w-[360px] max-w-[70vw] border-r border-gray-200 dark:border-zinc-800';
+
     const handleAttemptClose = () => {
         if (isDirty) {
             setShowDiscardConfirm(true);
@@ -188,6 +285,15 @@ const CreatePage: React.FC = () => {
         if (e.target) e.target.value = ''; 
     };
     
+    const handleDetailResizeStart = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        if (!showPreview || previewMaximized) {
+            return;
+        }
+
+        event.preventDefault();
+        setIsResizingDetailPanel(true);
+    }, [showPreview, previewMaximized]);
+
     const handleSaveCard = React.useCallback(async (cardToSave: LibraryCard) => {
         // Check if user is authenticated
         if (!user) {
@@ -624,18 +730,10 @@ const CreatePage: React.FC = () => {
         return (
             <div className="w-80 bg-white dark:bg-zinc-900 border-r border-gray-300 dark:border-zinc-700 flex flex-col h-full">
                 {/* Header */}
-                <header className="p-4 border-b border-gray-200 dark:border-zinc-800 overflow-hidden">
-                    <h2 className="text-lg font-bold font-serif text-gray-800 dark:text-zinc-200 mb-3">
+                <header className="p-4 border-b border-gray-200 dark:border-zinc-800">
+                    <h2 className="text-lg font-bold font-serif text-gray-800 dark:text-zinc-200">
                         {storyToEdit ? t.editTitle : t.createTitle}
                     </h2>
-                    <div className="flex justify-end">
-                        <button
-                            onClick={handleAttemptClose}
-                            className="p-1 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full"
-                        >
-                            <CloseIcon className="w-4 h-4" />
-                        </button>
-                    </div>
                 </header>
 
                 {/* Navigation Groups */}
@@ -668,7 +766,7 @@ const CreatePage: React.FC = () => {
                                 <PlusIcon className="w-4 h-4" />
                             </button>
                         </div>
-                        <div className="space-y-1 max-h-64 overflow-y-auto">
+                        <div className="space-y-1 flex-1 overflow-y-auto">
                             {story.library.map(card => {
                                 const isSelected = typeof sidebarSelection === 'object' && sidebarSelection.cardId === card.id;
 
@@ -758,12 +856,20 @@ const CreatePage: React.FC = () => {
                             <DownloadIcon className="w-4 h-4" /> {t.export}
                         </button>
                     </div>
-                    <button
-                        onClick={handlePublish}
-                        className="w-full px-3 py-2 text-sm bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700"
-                    >
-                        {t.publish}
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handlePublish}
+                            className="flex-1 px-3 py-2 text-sm bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700"
+                        >
+                            {t.publish}
+                        </button>
+                        <button
+                            onClick={handleAttemptClose}
+                            className="px-4 py-2 text-sm text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-md font-semibold"
+                        >
+                            {t.cancel}
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -799,7 +905,7 @@ const CreatePage: React.FC = () => {
             return (
                 <div className="h-full flex flex-col">
                     {/* Card Editor Header */}
-                    <header className="p-6 border-b border-gray-200 dark:border-zinc-800">
+                    <header className="p-4 border-b border-gray-200 dark:border-zinc-800">
                         <div className="flex justify-between items-center">
                             <h3 className="text-lg font-semibold">{t.editCard}: {desktopEditingCard.name || t.unnamedCard}</h3>
                             {desktopCardIsDirty && (
@@ -917,21 +1023,37 @@ const CreatePage: React.FC = () => {
                 // Desktop Layout: Sidebar + Content + Preview (three columns)
                 <div className="fixed inset-0 bg-gray-50 dark:bg-zinc-950 flex h-screen">
                     {renderSidebar()}
-                    <main className={`flex-1 bg-white dark:bg-zinc-900 ${showPreview && !previewMaximized ? 'flex' : ''}`}>
-                        <div className={showPreview && !previewMaximized ? 'flex-1' : 'w-full'}>
+                    <main
+                        ref={desktopMainRef}
+                        className={`flex-1 bg-white dark:bg-zinc-900 ${showPreview && !previewMaximized ? 'flex items-stretch' : ''}`}
+                    >
+                        {showPreview && (
+                            <>
+                                <PreviewPanel
+                                    card={getCurrentPreviewCard()}
+                                    language={settings.language}
+                                    isVisible={showPreview}
+                                    isMaximized={previewMaximized}
+                                    onToggleVisible={() => setShowPreview(false)}
+                                    onToggleMaximize={() => setPreviewMaximized(!previewMaximized)}
+                                    className={previewPanelClassName}
+                                />
+                                {!previewMaximized && (
+                                    <div
+                                        role="separator"
+                                        aria-orientation="vertical"
+                                        onPointerDown={handleDetailResizeStart}
+                                        className={`w-1.5 flex-shrink-0 bg-gray-200 dark:bg-zinc-800 cursor-col-resize transition-colors ${isResizingDetailPanel ? 'bg-indigo-400 dark:bg-indigo-500' : 'hover:bg-indigo-300 dark:hover:bg-indigo-600'}`}
+                                    />
+                                )}
+                            </>
+                        )}
+                        <div
+                            className={detailPanelClassName}
+                            style={detailPanelStyle}
+                        >
                             {renderDesktopContent()}
                         </div>
-                        {showPreview && (
-                            <PreviewPanel
-                                card={getCurrentPreviewCard()}
-                                language={settings.language}
-                                isVisible={showPreview}
-                                isMaximized={previewMaximized}
-                                onToggleVisible={() => setShowPreview(false)}
-                                onToggleMaximize={() => setPreviewMaximized(!previewMaximized)}
-                                className={previewMaximized ? 'fixed inset-0 z-50' : 'w-96 min-w-96'}
-                            />
-                        )}
                     </main>
                 </div>
             ) : (
