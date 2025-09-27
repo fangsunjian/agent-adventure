@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* CSS Variables for shadcn/ui theming */
 @layer base {
   :root {
@@ -121,4 +123,3 @@
   display: flex;
   flex-direction: column;
 }
-

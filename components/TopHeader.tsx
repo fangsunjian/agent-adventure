@@ -69,11 +69,11 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
 
     // Desktop view - new horizontal navigation
     const renderDesktopHeader = () => (
-        <div className="h-16 flex items-center justify-between px-6">
+        <div className="h-16 flex items-center justify-between px-6 text-gray-700 dark:text-zinc-200">
             {/* Left section: Logo + Navigation */}
             <div className="flex items-center gap-8">
                 {/* Logo */}
-                <div className="text-xl font-bold text-indigo-500">
+                <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
                     Logo
                 </div>
 
@@ -83,8 +83,8 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         onClick={() => navigate('/')}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
                             isActive('/')
-                                ? 'bg-indigo-500 text-white'
-                                : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                                ? 'bg-indigo-500 text-white shadow-sm'
+                                : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700'
                         }`}
                     >
                         <HomeIcon className="w-5 h-5" />
@@ -94,8 +94,8 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         onClick={() => navigate('/explore')}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${
                             isActive('/explore')
-                                ? 'bg-indigo-500 text-white'
-                                : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                                ? 'bg-indigo-500 text-white shadow-sm'
+                                : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700'
                         }`}
                     >
                         <SearchIcon className="w-5 h-5" />
@@ -107,11 +107,11 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
             {/* Center section: Search */}
             <div className="flex-1 max-w-xl mx-8">
                 <div className="relative">
-                    <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
                     <input
                         type="text"
                         placeholder="Search"
-                        className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                 </div>
             </div>
@@ -122,7 +122,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                 {user ? (
                     <button
                         onClick={handleProfileClick}
-                        className="flex items-center gap-2 px-3 py-2 text-gray-300 hover:text-white rounded-lg transition-colors text-sm"
+                        className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-indigo-600 dark:text-gray-300 dark:hover:text-white rounded-lg transition-colors text-sm"
                     >
                         <UserIcon className="w-4 h-4" />
                         <span>我</span>
@@ -130,7 +130,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                 ) : (
                     <button
                         onClick={handleLoginClick}
-                        className="flex items-center gap-2 px-3 py-2 text-gray-300 hover:text-white rounded-lg transition-colors text-sm"
+                        className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-indigo-600 dark:text-gray-300 dark:hover:text-white rounded-lg transition-colors text-sm"
                     >
                         <UserIcon className="w-4 h-4" />
                         <span>登录</span>
@@ -140,7 +140,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                 {/* Action buttons */}
                 <button
                     onClick={user ? () => navigate('/profile') : handleLoginClick}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white rounded-lg transition-colors text-sm"
+                    className="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors text-sm"
                 >
                     历史
                 </button>
@@ -160,7 +160,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
             <div className="block lg:hidden">
                 {renderMobileHeader()}
             </div>
-            <div className="hidden lg:block bg-gray-800 dark:bg-gray-900 border-b border-gray-700">
+            <div className="hidden lg:block bg-white/90 dark:bg-gray-900/90 border-b border-gray-200 dark:border-gray-800 backdrop-blur">
                 {renderDesktopHeader()}
             </div>
         </header>

@@ -19,17 +19,53 @@ export default function App(): React.ReactNode {
     })
   }, [])
 
-  // Apply theme and UI settings
+  // Apply theme preference including auto (system) mode
   useEffect(() => {
-    const root = document.documentElement
-    if (settings.theme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
+    if (typeof window === 'undefined') {
+      return
     }
 
-    root.style.fontSize = `${settings.uiScale}%`
-  }, [settings.theme, settings.uiScale])
+    const root = document.documentElement
+    const applyTheme = (mode: 'light' | 'dark') => {
+      root.classList.toggle('dark', mode === 'dark')
+      root.style.colorScheme = mode
+      root.dataset.themeApplied = mode
+    }
+
+    if (settings.theme === 'auto') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      const updateFromSystemPreference = (matches: boolean) => {
+        applyTheme(matches ? 'dark' : 'light')
+      }
+
+      root.dataset.themePreference = 'auto'
+      updateFromSystemPreference(mediaQuery.matches)
+
+      const handleChange = (event: MediaQueryListEvent) => {
+        updateFromSystemPreference(event.matches)
+      }
+
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleChange)
+        return () => {
+          mediaQuery.removeEventListener('change', handleChange)
+        }
+      }
+
+      mediaQuery.addListener(handleChange)
+      return () => {
+        mediaQuery.removeListener(handleChange)
+      }
+    }
+
+    root.dataset.themePreference = settings.theme
+    applyTheme(settings.theme)
+  }, [settings.theme])
+
+  // Apply UI scale independently so it is always in sync
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${settings.uiScale}%`
+  }, [settings.uiScale])
 
   // Show loading overlay while settings are loading (but not authentication)
   if (settingsLoading) {

@@ -224,8 +224,8 @@ const CreatePage: React.FC = () => {
         }
         : undefined;
     const detailPanelClassName = shouldShowResizablePreview
-        ? 'h-full flex-shrink-0 overflow-hidden bg-white dark:bg-zinc-900'
-        : 'w-full h-full';
+        ? 'h-full min-h-0 flex-shrink-0 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden'
+        : 'w-full h-full min-h-0 flex flex-col overflow-hidden';
     const previewPanelClassName = previewMaximized
         ? 'fixed inset-0 z-50'
         : 'flex-1 min-w-[360px] max-w-[70vw] border-r border-gray-200 dark:border-zinc-800';
@@ -1108,7 +1108,7 @@ const CreatePage: React.FC = () => {
         if (sidebarSelection === 'basic') {
             // Show combined basic info + plot settings
             return (
-                <div className="p-6 space-y-6 overflow-y-auto">
+                <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6 pt-8 space-y-6">
                     <section>
                         <h3 className="text-lg font-semibold mb-4">{t.tabBasicInfo}</h3>
                         {renderBasicInfoTab()}

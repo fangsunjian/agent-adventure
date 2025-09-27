@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import type { GameSettings, Story, Playthrough, Language } from '../types';
 import { translations } from '../constants';
 import StoryCard from '../components/StoryCard';
-import { PlusIcon, SunIcon, MoonIcon, LogOutIcon, SettingsIcon } from '../components/icons';
+import { PlusIcon, SunIcon, MoonIcon, LogOutIcon, SettingsIcon, MonitorIcon } from '../components/icons';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import { useAuth } from '../contexts/AuthContext';
 import SettingsModal from '../components/SettingsModal';
@@ -25,6 +25,27 @@ type ConfirmAction =
 
 const ProfilePage: React.FC<ProfilePageProps> = ({ settings, setSettings, stories, playthroughs, onEdit, onDeleteStory, onPlay, onDeletePlaythrough }) => {
     const t = translations[settings.language];
+    const themeLabelMap = settings.language === 'zh'
+        ? { light: '浅色', dark: '深色', auto: '跟随系统' }
+        : { light: 'Light', dark: 'Dark', auto: 'Auto' };
+    const currentTheme: GameSettings['theme'] = settings.theme === 'light' || settings.theme === 'dark'
+        ? settings.theme
+        : 'auto';
+    const currentThemeLabel = themeLabelMap[currentTheme];
+    const currentThemeIcon = currentTheme === 'dark'
+        ? <MoonIcon className="w-5 h-5" />
+        : currentTheme === 'light'
+            ? <SunIcon className="w-5 h-5" />
+            : <MonitorIcon className="w-5 h-5" />;
+
+    const handleCycleTheme = useCallback(() => {
+        const sequence: ReadonlyArray<GameSettings['theme']> = ['light', 'dark', 'auto'];
+        setSettings(prevSettings => {
+            const prevTheme = prevSettings.theme === 'light' || prevSettings.theme === 'dark' ? prevSettings.theme : 'auto';
+            const nextTheme = sequence[(sequence.indexOf(prevTheme) + 1) % sequence.length];
+            return { ...prevSettings, theme: nextTheme };
+        });
+    }, [setSettings]);
     const { signOut, user } = useAuth();
     const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -120,8 +141,14 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ settings, setSettings, storie
                     <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 text-gray-500 dark:text-zinc-400 hover:text-indigo-500 transition-colors" aria-label={t.settings}>
                         <SettingsIcon className="w-5 h-5"/>
                     </button>
-                    <button onClick={() => setSettings(s => ({...s, theme: s.theme === 'dark' ? 'light' : 'dark'}))} className="p-2 text-gray-500 dark:text-zinc-400 hover:text-indigo-500 transition-colors" aria-label="Toggle theme">
-                        {settings.theme === 'dark' ? <SunIcon className="w-5 h-5"/> : <MoonIcon className="w-5 h-5"/>}
+                    <button
+                        onClick={handleCycleTheme}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 dark:text-zinc-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
+                        aria-label={`Toggle theme (current: ${currentThemeLabel})`}
+                        title={currentThemeLabel}
+                    >
+                        {currentThemeIcon}
+                        <span className="font-medium">{currentThemeLabel}</span>
                     </button>
                     <button onClick={signOut} className="p-2 text-gray-500 dark:text-zinc-400 hover:text-red-500 transition-colors" aria-label="Sign Out">
                         <LogOutIcon className="w-5 h-5"/>

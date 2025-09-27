@@ -69,7 +69,7 @@ export interface AppSettings {
   enableImageGeneration: boolean;
   enableDialogueTools: boolean; // New setting for dialogue tool calls
   language: Language;
-  theme: 'light' | 'dark';
+  theme: 'light' | 'dark' | 'auto';
   uiScale: number; // in percent, e.g., 100
   dialogueWindowOpacity: number; // in percent, e.g., 100
   bubbleOpacity: number; // in percent, e.g., 100

@@ -409,7 +409,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   enableImageGeneration: true,
   enableDialogueTools: false,
   language: 'en',
-  theme: 'dark',
+  theme: 'auto',
   uiScale: 100,
   dialogueWindowOpacity: 100,
   bubbleOpacity: 100,

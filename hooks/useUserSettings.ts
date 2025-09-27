@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { GameSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../constants';
-import { UserSettingsService } from '../services/userSettingsService';
 import { useAuth } from '../contexts/AuthContext';
-import useLocalStorage from './useLocalStorage';
 
 interface UseUserSettingsReturn {
   settings: GameSettings;
@@ -16,100 +14,139 @@ interface UseUserSettingsReturn {
   resetToDefault: () => void;
 }
 
-/**
- * 增强的用户设置管理 Hook
- * 结合了本地存储和云端数据库同步
- */
+const STORAGE_KEY = 'gemini-adventure-settings-v2';
+
+type StoreState = {
+  settings: GameSettings;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+};
+
+type StoreListener = () => void;
+
+const THEME_OPTIONS: ReadonlyArray<GameSettings['theme']> = ['light', 'dark', 'auto'];
+
+const mergeWithDefaults = (settings: Partial<GameSettings> | null | undefined): GameSettings => {
+  const merged: GameSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(settings ?? {}),
+  };
+
+  if (!THEME_OPTIONS.includes(merged.theme)) {
+    merged.theme = DEFAULT_SETTINGS.theme;
+  }
+
+  return merged;
+};
+
+const loadSettingsFromStorage = (): GameSettings => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_SETTINGS;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+      return DEFAULT_SETTINGS;
+    }
+
+    const parsed = JSON.parse(stored) as Partial<GameSettings>;
+    return mergeWithDefaults(parsed);
+  } catch (error) {
+    console.error('Failed to parse user settings from storage:', error);
+    return DEFAULT_SETTINGS;
+  }
+};
+
+let storeState: StoreState = {
+  settings: loadSettingsFromStorage(),
+  isLoading: false,
+  isSaving: false,
+  error: null,
+};
+
+const listeners = new Set<StoreListener>();
+
+const getSnapshot = (): StoreState => storeState;
+
+const subscribe = (listener: StoreListener) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+const emit = () => {
+  listeners.forEach(listener => listener());
+};
+
+const persistSettings = (settings: GameSettings) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch (error) {
+    console.error('Failed to persist user settings:', error);
+  }
+};
+
+const updateStoreState = (partial: Partial<StoreState>) => {
+  storeState = { ...storeState, ...partial };
+  emit();
+};
+
+const setSettingsInternal = (value: GameSettings | ((prev: GameSettings) => GameSettings)) => {
+  const next = typeof value === 'function'
+    ? (value as (prev: GameSettings) => GameSettings)(storeState.settings)
+    : value;
+
+  const sanitized = mergeWithDefaults(next);
+  persistSettings(sanitized);
+  updateStoreState({ settings: sanitized });
+};
+
+const resetToDefaultInternal = () => {
+  setSettingsInternal(DEFAULT_SETTINGS);
+};
+
+const saveToCloudInternal = async (): Promise<boolean> => {
+  // 云端同步当前禁用，保留接口返回成功
+  return true;
+};
+
+const loadFromCloudInternal = async (): Promise<boolean> => {
+  // 云端同步当前禁用，保留接口返回成功
+  return true;
+};
+
 export function useUserSettings(): UseUserSettingsReturn {
   const { user } = useAuth();
-  const [localSettings, setLocalSettings] = useLocalStorage<GameSettings>('gemini-adventure-settings-v2', DEFAULT_SETTINGS);
-  const [settings, setSettings] = useState<GameSettings>(localSettings);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const settingsLoadedRef = useRef(false);
+  const snapshot = useSyncExternalStore<StoreState>(subscribe, getSnapshot, getSnapshot);
 
-  // 同步本地设置到状态
-  useEffect(() => {
-    setSettings(localSettings);
-  }, [localSettings]);
-
-  // 用户登录时从云端加载设置 - 临时禁用云端同步
-  // useEffect(() => {
-  //   if (user && !settingsLoadedRef.current) {
-  //     loadFromCloud();
-  //     settingsLoadedRef.current = true;
-  //   }
-  // }, [user]);
-
-  // 监听云端设置变化 - 临时禁用云端同步
-  // useEffect(() => {
-  //   if (!user) return;
-
-  //   const unsubscribe = UserSettingsService.subscribeToUserSettings(
-  //     user.id,
-  //     (cloudSettings) => {
-  //       if (cloudSettings) {
-  //         // 云端设置有更新，同步到本地
-  //         setLocalSettings(cloudSettings);
-  //         setSettings(cloudSettings);
-  //       }
-  //     }
-  //   );
-
-  //   return unsubscribe;
-  // }, [user, setLocalSettings]);
-
-  // 用户登出时重置
   useEffect(() => {
     if (!user) {
-      settingsLoadedRef.current = false;
-      setError(null);
+      updateStoreState({ error: null, isLoading: false, isSaving: false });
     }
   }, [user]);
 
-  /**
-   * 保存设置到云端 - 临时禁用
-   */
-  const saveToCloud = useCallback(async (): Promise<boolean> => {
-    // 模拟成功保存
-    return true;
-  }, [user, settings]);
+  const setSettings = useCallback(
+    (value: GameSettings | ((prev: GameSettings) => GameSettings)) => {
+      setSettingsInternal(value);
+    },
+    []
+  );
 
-  /**
-   * 从云端加载设置 - 临时禁用
-   */
-  const loadFromCloud = useCallback(async (): Promise<boolean> => {
-    // 模拟成功加载
-    return true;
-  }, [user, settings, setLocalSettings]);
-
-  /**
-   * 设置增强函数 - 仅本地存储（临时禁用云端）
-   */
-  const enhancedSetSettings = useCallback((newSettings: GameSettings | ((prev: GameSettings) => GameSettings)) => {
-    const settingsToApply = newSettings instanceof Function ? newSettings(settings) : newSettings;
-
-    // 只更新本地存储
-    setLocalSettings(settingsToApply);
-    setSettings(settingsToApply);
-
-    // 云端保存已禁用
-  }, [settings, setLocalSettings]);
-
-  /**
-   * 重置为默认设置
-   */
-  const resetToDefault = useCallback(() => {
-    enhancedSetSettings(DEFAULT_SETTINGS);
-  }, [enhancedSetSettings]);
+  const saveToCloud = useCallback(async () => saveToCloudInternal(), []);
+  const loadFromCloud = useCallback(async () => loadFromCloudInternal(), []);
+  const resetToDefault = useCallback(() => resetToDefaultInternal(), []);
 
   return {
-    settings,
-    setSettings: enhancedSetSettings,
-    isLoading,
-    isSaving,
-    error,
+    settings: snapshot.settings,
+    setSettings,
+    isLoading: snapshot.isLoading,
+    isSaving: snapshot.isSaving,
+    error: snapshot.error,
     saveToCloud,
     loadFromCloud,
     resetToDefault,
