@@ -361,6 +361,81 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       return replacedStory;
   }, []);
 
+  const hydrateGameStateFromPlaythrough = useCallback((playthroughData: Playthrough) => {
+      setGameState(prev => {
+        const nextState: Omit<Playthrough, 'storyId'> = {
+          userId: playthroughData.userId,
+          history: playthroughData.history || [],
+          summaries: playthroughData.summaries || [],
+          grandSummaries: playthroughData.grandSummaries || [],
+          milestoneSummaries: playthroughData.milestoneSummaries || [],
+          turn: playthroughData.turn || 0,
+          userName: playthroughData.userName || 'Player',
+          charName: playthroughData.charName || 'Game Master',
+          gameStatus: playthroughData.gameStatus || GameStatus.Idle,
+          dialogue: playthroughData.dialogue || null,
+          placeholderValues: playthroughData.placeholderValues || {},
+          playerLocation: playthroughData.playerLocation || null,
+          mapData: playthroughData.mapData || null,
+          hasUnviewedLocationChange: playthroughData.hasUnviewedLocationChange || false,
+        };
+
+        const prevSnapshot = JSON.stringify({
+          history: prev.history,
+          summaries: prev.summaries,
+          grandSummaries: prev.grandSummaries,
+          milestoneSummaries: prev.milestoneSummaries,
+          turn: prev.turn,
+          userName: prev.userName,
+          charName: prev.charName,
+          gameStatus: prev.gameStatus,
+          dialogue: prev.dialogue,
+          placeholderValues: prev.placeholderValues,
+          playerLocation: prev.playerLocation,
+          mapData: prev.mapData,
+          hasUnviewedLocationChange: prev.hasUnviewedLocationChange,
+        });
+
+        const nextSnapshot = JSON.stringify({
+          history: nextState.history,
+          summaries: nextState.summaries,
+          grandSummaries: nextState.grandSummaries,
+          milestoneSummaries: nextState.milestoneSummaries,
+          turn: nextState.turn,
+          userName: nextState.userName,
+          charName: nextState.charName,
+          gameStatus: nextState.gameStatus,
+          dialogue: nextState.dialogue,
+          placeholderValues: nextState.placeholderValues,
+          playerLocation: nextState.playerLocation,
+          mapData: nextState.mapData,
+          hasUnviewedLocationChange: nextState.hasUnviewedLocationChange,
+        });
+
+        if (prevSnapshot === nextSnapshot) {
+          return prev;
+        }
+
+        return nextState;
+      });
+
+      setLastPlaceholderValues(playthroughData.placeholderValues || {});
+      setDetectedPlaceholders([]);
+      setIsPlaceholderModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (playthrough) {
+      console.log('[GamePage] (props) Hydrating game state from playthrough', {
+        storyId: playthrough.storyId,
+        historyLength: playthrough.history?.length || 0,
+        turn: playthrough.turn,
+        hasPlaceholders: playthrough.placeholderValues && Object.keys(playthrough.placeholderValues).length > 0,
+      });
+      hydrateGameStateFromPlaythrough(playthrough);
+    }
+  }, [playthrough, hydrateGameStateFromPlaythrough]);
+
   const handlePlaceholderSubmit = useCallback((names: Record<string, string>) => {
       // Save the values for next time
       setLastPlaceholderValues(names);
@@ -397,6 +472,8 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       } else {
         setProcessedStory(activeStory);
       }
+      setDetectedPlaceholders([]);
+      setIsPlaceholderModalOpen(false);
       return;
     }
 

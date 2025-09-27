@@ -59,7 +59,7 @@ export default function GamePage(): React.ReactNode {
 
   // Data hooks
   const { data: activeStory, isLoading: storyLoading, error: storyError } = useStory(storyId || null);
-  const { data: playthroughs = [] } = usePlaythroughs(user?.id);
+  const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(user?.id);
   const savePlaythroughMutation = useSavePlaythrough();
 
   // Mock settings - TODO: Implement proper settings management
@@ -555,8 +555,88 @@ export default function GamePage(): React.ReactNode {
       // Don't call onExit, just close the modal and stay in the game
   }, []);
 
+  const hydrateGameStateFromPlaythrough = useCallback((playthroughData: Playthrough) => {
+    setGameState(prev => {
+      const nextState: Omit<Playthrough, 'storyId'> = {
+        userId: playthroughData.userId,
+        history: playthroughData.history || [],
+        summaries: playthroughData.summaries || [],
+        grandSummaries: playthroughData.grandSummaries || [],
+        milestoneSummaries: playthroughData.milestoneSummaries || [],
+        turn: playthroughData.turn || 0,
+        userName: playthroughData.userName || 'Player',
+        charName: playthroughData.charName || 'Game Master',
+        gameStatus: playthroughData.gameStatus || GameStatus.Idle,
+        dialogue: playthroughData.dialogue || null,
+        placeholderValues: playthroughData.placeholderValues || {},
+        playerLocation: playthroughData.playerLocation || null,
+        mapData: playthroughData.mapData || null,
+        hasUnviewedLocationChange: playthroughData.hasUnviewedLocationChange || false,
+      };
+
+      const prevSnapshot = JSON.stringify({
+        history: prev.history,
+        summaries: prev.summaries,
+        grandSummaries: prev.grandSummaries,
+        milestoneSummaries: prev.milestoneSummaries,
+        turn: prev.turn,
+        userName: prev.userName,
+        charName: prev.charName,
+        gameStatus: prev.gameStatus,
+        dialogue: prev.dialogue,
+        placeholderValues: prev.placeholderValues,
+        playerLocation: prev.playerLocation,
+        mapData: prev.mapData,
+        hasUnviewedLocationChange: prev.hasUnviewedLocationChange,
+      });
+
+      const nextSnapshot = JSON.stringify({
+        history: nextState.history,
+        summaries: nextState.summaries,
+        grandSummaries: nextState.grandSummaries,
+        milestoneSummaries: nextState.milestoneSummaries,
+        turn: nextState.turn,
+        userName: nextState.userName,
+        charName: nextState.charName,
+        gameStatus: nextState.gameStatus,
+        dialogue: nextState.dialogue,
+        placeholderValues: nextState.placeholderValues,
+        playerLocation: nextState.playerLocation,
+        mapData: nextState.mapData,
+        hasUnviewedLocationChange: nextState.hasUnviewedLocationChange,
+      });
+
+      if (prevSnapshot === nextSnapshot) {
+        return prev;
+      }
+
+      return nextState;
+    });
+
+    setLastPlaceholderValues(playthroughData.placeholderValues || {});
+    setDetectedPlaceholders([]);
+    setIsPlaceholderModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (existingPlaythrough) {
+      console.log('[GamePage] Hydrating game state from playthrough', {
+        storyId: existingPlaythrough.storyId,
+        historyLength: existingPlaythrough.history?.length || 0,
+        turn: existingPlaythrough.turn,
+        hasPlaceholders: existingPlaythrough.placeholderValues && Object.keys(existingPlaythrough.placeholderValues).length > 0,
+      });
+      hydrateGameStateFromPlaythrough(existingPlaythrough);
+    }
+  }, [existingPlaythrough, hydrateGameStateFromPlaythrough]);
+
   useEffect(() => {
     if (!activeStory) return;
+
+    if (playthroughsLoading) {
+      console.log('[GamePage] Waiting for playthroughs to load before initializing story');
+      return;
+    }
 
     GameEngine.applyHtmlComponentInitializers(activeStory);
 
@@ -566,6 +646,8 @@ export default function GamePage(): React.ReactNode {
       const replacedStory = applyPlaceholdersToStory(activeStory, gameState.placeholderValues);
       setProcessedStory(replacedStory);
       setLastPlaceholderValues(gameState.placeholderValues);
+      setDetectedPlaceholders([]);
+      setIsPlaceholderModalOpen(false);
 
       // Don't start a new session since we're continuing an existing game
       console.log('Continuing game with existing playthrough and placeholder values');
@@ -579,13 +661,15 @@ export default function GamePage(): React.ReactNode {
       setIsPlaceholderModalOpen(true);
     } else {
       setProcessedStory(activeStory);
+      setLastPlaceholderValues({});
       // Only start new session if no existing playthrough
       if (!existingPlaythrough) {
+        console.log('[GamePage] Starting new session (no existing playthrough detected)');
         startNewSession(activeStory);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStory, existingPlaythrough]);
+  }, [activeStory, existingPlaythrough, playthroughsLoading]);
   
   // 保存游戏进度 - 只在重要变化时触发，避免无限循环
   const lastSaveRef = useRef<{ turn: number, historyLength: number, gameStatus: string }>({
@@ -1544,7 +1628,6 @@ export default function GamePage(): React.ReactNode {
     </div>
   );
 }
-
 
 
 
