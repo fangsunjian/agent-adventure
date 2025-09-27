@@ -9,7 +9,10 @@
     "copy-prompts": "node scripts/copy-prompts.js",
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "bmad:refresh": "bmad-method install -f -i codex",
+    "bmad:list": "bmad-method list:agents",
+    "bmad:validate": "bmad-method validate"
   },
   "dependencies": {
     "@google/genai": "^1.15.0",

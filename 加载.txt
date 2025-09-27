@@ -1,0 +1,5 @@
+@.bmad-core/agents/bmad-master.md
+@PROJECT_STATUS_SNAPSHOT.md请快速阅读这个项目状态快照，然后告诉我：
+  1. 当前项目的核心状态
+  2. 接下来应该优先做什么
+  3. 背包功能的具体开发步骤
