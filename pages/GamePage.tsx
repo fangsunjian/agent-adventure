@@ -478,13 +478,25 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     }
 
     const placeholders = scanForPlaceholders(activeStory);
-    if (placeholders.length > 0) {
+    const hasSavedPlaceholders = (lastPlaceholderValues && Object.keys(lastPlaceholderValues).length > 0)
+      || (gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0);
+
+    if (placeholders.length > 0 && !hasSavedPlaceholders) {
       setDetectedPlaceholders(placeholders);
       setIsPlaceholderModalOpen(true);
     } else {
-      setProcessedStory(activeStory);
-      setLastPlaceholderValues({});
-      startNewSession(activeStory);
+      const appliedStory = hasSavedPlaceholders
+        ? applyPlaceholdersToStory(activeStory, gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0
+            ? gameState.placeholderValues
+            : lastPlaceholderValues)
+        : activeStory;
+
+      setProcessedStory(appliedStory);
+
+      if (!hasSavedPlaceholders) {
+        setLastPlaceholderValues({});
+        startNewSession(activeStory);
+      }
     }
   }, [activeStory, playthrough, gameState.placeholderValues, scanForPlaceholders, startNewSession, applyPlaceholdersToStory]);
   

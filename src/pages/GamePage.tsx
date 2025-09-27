@@ -656,16 +656,28 @@ export default function GamePage(): React.ReactNode {
 
     // For new games, check if placeholders need to be filled
     const placeholders = scanForPlaceholders(activeStory);
-    if (placeholders.length > 0) {
+    const hasSavedPlaceholders = (lastPlaceholderValues && Object.keys(lastPlaceholderValues).length > 0)
+      || (gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0);
+
+    if (placeholders.length > 0 && !hasSavedPlaceholders) {
       setDetectedPlaceholders(placeholders);
       setIsPlaceholderModalOpen(true);
     } else {
-      setProcessedStory(activeStory);
-      setLastPlaceholderValues({});
-      // Only start new session if no existing playthrough
-      if (!existingPlaythrough) {
-        console.log('[GamePage] Starting new session (no existing playthrough detected)');
-        startNewSession(activeStory);
+      const appliedStory = hasSavedPlaceholders
+        ? applyPlaceholdersToStory(activeStory, gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0
+            ? gameState.placeholderValues
+            : lastPlaceholderValues)
+        : activeStory;
+
+      setProcessedStory(appliedStory);
+
+      if (!hasSavedPlaceholders) {
+        setLastPlaceholderValues({});
+        // Only start new session if no existing playthrough
+        if (!existingPlaythrough) {
+          console.log('[GamePage] Starting new session (no existing playthrough detected)');
+          startNewSession(activeStory);
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
