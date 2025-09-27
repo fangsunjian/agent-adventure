@@ -281,7 +281,8 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   const startNewSession = useCallback((story: Story, userName?: string, charName?: string) => {
     // 重置GameEngine会话状态（包括LLM提供商检测）
     GameEngine.resetSession();
-    
+    GameEngine.applyHtmlComponentInitializers(story);
+
     const openingMonologue = parseContent(story.openingMonologue);
     
     const monologueScene: SceneFragment = {
@@ -335,29 +336,20 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
     return Array.from(placeholders.values());
   }, []);
 
-  const handlePlaceholderSubmit = useCallback((names: Record<string, string>) => {
-      // Save the values for next time
-      setLastPlaceholderValues(names);
-      
-      // Update gameState with placeholder values for persistence
-      setGameState(prev => ({
-        ...prev,
-        placeholderValues: names
-      }));
-      
-      const replacedStory = JSON.parse(JSON.stringify(activeStory));
-      
+  const applyPlaceholdersToStory = useCallback((story: Story, placeholderValues: Record<string, string>): Story => {
+      const replacedStory = JSON.parse(JSON.stringify(story));
+
       const replace = (text: string) => {
           let newText = text;
-          for (const key in names) {
-              if (Object.prototype.hasOwnProperty.call(names, key)) {
+          for (const key in placeholderValues) {
+              if (Object.prototype.hasOwnProperty.call(placeholderValues, key)) {
                   const regex = new RegExp(`{{\\s*${key}(?::[^}}]+)?\\s*}}`, 'g');
-                  newText = newText.replace(regex, names[key]);
+                  newText = newText.replace(regex, placeholderValues[key]);
               }
           }
           return newText;
       };
-      
+
       replacedStory.backgroundSetting = replace(replacedStory.backgroundSetting);
       replacedStory.openingMonologue = replace(replacedStory.openingMonologue);
       replacedStory.openingAction = replace(replacedStory.openingAction);
@@ -366,11 +358,25 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
           content: replace(card.content),
       }));
 
+      return replacedStory;
+  }, []);
+
+  const handlePlaceholderSubmit = useCallback((names: Record<string, string>) => {
+      // Save the values for next time
+      setLastPlaceholderValues(names);
+
+      // Update gameState with placeholder values for persistence
+      setGameState(prev => ({
+        ...prev,
+        placeholderValues: names
+      }));
+
+      const replacedStory = applyPlaceholdersToStory(activeStory, names);
       setProcessedStory(replacedStory);
       startNewSession(replacedStory, names.user, names.char);
-      
+
       setIsPlaceholderModalOpen(false);
-  }, [activeStory, startNewSession]);
+  }, [activeStory, startNewSession, applyPlaceholdersToStory]);
 
   const handlePlaceholderCancel = useCallback(() => {
       setIsPlaceholderModalOpen(false);
@@ -378,20 +384,32 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
   }, []);
 
   useEffect(() => {
+    if (!activeStory) return;
+
+    GameEngine.applyHtmlComponentInitializers(activeStory);
+
     if (playthrough) {
-      setProcessedStory(activeStory);
-    } else {
-      const placeholders = scanForPlaceholders(activeStory);
-      if (placeholders.length > 0) {
-        setDetectedPlaceholders(placeholders);
-        setIsPlaceholderModalOpen(true);
+      const placeholderValues = playthrough.placeholderValues || gameState.placeholderValues || {};
+      setLastPlaceholderValues(placeholderValues);
+      if (placeholderValues && Object.keys(placeholderValues).length > 0) {
+        const replacedStory = applyPlaceholdersToStory(activeStory, placeholderValues);
+        setProcessedStory(replacedStory);
       } else {
         setProcessedStory(activeStory);
-        startNewSession(activeStory);
       }
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    const placeholders = scanForPlaceholders(activeStory);
+    if (placeholders.length > 0) {
+      setDetectedPlaceholders(placeholders);
+      setIsPlaceholderModalOpen(true);
+    } else {
+      setProcessedStory(activeStory);
+      setLastPlaceholderValues({});
+      startNewSession(activeStory);
+    }
+  }, [activeStory, playthrough, gameState.placeholderValues, scanForPlaceholders, startNewSession, applyPlaceholdersToStory]);
   
   useEffect(() => {
       if (gameState.gameStatus !== GameStatus.Idle || gameState.history.length > 0) {
@@ -730,6 +748,7 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
       setIsPlaceholderModalOpen(true);
     } else {
       setProcessedStory(activeStory);
+      setLastPlaceholderValues({});
       startNewSession(activeStory);
     }
   };
@@ -923,7 +942,36 @@ export default function GamePage({ settings, setSettings, activeStory, playthrou
             });
           }
           return;
-          
+
+        case 'REGISTER_INITIALIZER':
+          try {
+            const targetComponentId = payload?.componentId;
+            if (!targetComponentId) {
+              throw new Error('缺少组件ID，无法注册初始化逻辑');
+            }
+
+            const initializerDescriptor = payload?.initializer ?? payload;
+            GameEngine.registerHtmlComponentInitializer(targetComponentId, initializerDescriptor);
+
+            responseAction = 'REGISTER_INITIALIZER_SUCCESS';
+            responsePayload = { success: true };
+            logCommunication('html_component_initializer_registered', {
+              componentId: targetComponentId,
+              initializer: initializerDescriptor
+            });
+          } catch (error) {
+            responseAction = 'REGISTER_INITIALIZER_ERROR';
+            responsePayload = {
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            };
+            logCommunication('html_component_initializer_error', {
+              componentId: payload?.componentId,
+              error: responsePayload.error
+            });
+          }
+          break;
+
         case 'LOG_MESSAGE':
           // 记录组件日志
           logCommunication('html_component_log', payload);

@@ -1,7 +1,31 @@
 import { PROMPTS } from '../prompts/index';
-import type { GameSettings, HistoryItem, Memories, SceneFragment, Story } from '../types';
+import type { GameSettings, HistoryItem, Memories, SceneFragment, Story, LibraryCard } from '../types';
 import { GameToolRegistry, type GameToolContext, type SceneType } from './GameToolRegistry';
 import { SceneAnalyzer } from './SceneAnalyzer';
+
+type InventoryItem = {
+  id: string;
+  name: string;
+  description?: string;
+  quantity: number;
+  timestamp?: number;
+  [key: string]: any;
+};
+
+interface InventoryStorageData {
+  items: InventoryItem[];
+  lastModified: number;
+}
+
+type HtmlComponentInitializerMode = 'always' | 'ifEmpty' | 'ifMissing';
+
+interface HtmlComponentInitializerDescriptor {
+  type: 'storage_seed';
+  storageKey: string;
+  data: unknown;
+  mode?: HtmlComponentInitializerMode;
+  description?: string;
+}
 
 // 重新导出用于测试
 export { GameToolRegistry } from './GameToolRegistry';
@@ -31,12 +55,551 @@ export interface ToolHandler {
 export class GameEngine {
   private static initialized = false;
   private static detectedLLMProvider: string | null = null; // 会话级别的LLM提供商检测
+
+  // HTML组件通信回调
+  private static htmlComponentCallback: ((componentToolCall: any) => Promise<any>) | null = null;
+
+  // 库存状态管理（用于在HTML组件不可用时的本地缓存）
+  private static inventoryState: InventoryStorageData & { nextId: number } = {
+    items: [],
+    lastModified: Date.now(),
+    nextId: 1
+  };
+
+  private static readonly HTML_COMPONENT_INITIALIZER_STORAGE_KEY = 'html_component_initializers_v1';
+  private static htmlComponentInitializersLoaded = false;
+  private static htmlComponentInitializers: Map<string, HtmlComponentInitializerDescriptor[]> = new Map();
+
+  private static isBrowserStorageAvailable(): boolean {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  }
+
+  private static getComponentStorageKeys(componentId: string, storageNamespace = 'inventory'): { storageKey: string; legacyKey: string } {
+    return {
+      storageKey: `html_component_${componentId}_${storageNamespace}`,
+      legacyKey: `${componentId}_${storageNamespace}`
+    };
+  }
+
+  private static calculateNextInventoryId(items: InventoryItem[]): number {
+    const maxNumericId = items.reduce((maxId, item) => {
+      if (!item?.id) return maxId;
+      const match = /^(?:item_)?(\d+)$/.exec(String(item.id));
+      if (!match) return maxId;
+      const numericId = Number.parseInt(match[1], 10);
+      return Number.isFinite(numericId) ? Math.max(maxId, numericId) : maxId;
+    }, 0);
+
+    return maxNumericId + 1;
+  }
+
+  private static setInventoryState(data: InventoryStorageData) {
+    const clonedItems = Array.isArray(data.items)
+      ? data.items.map(item => ({ ...item }))
+      : [];
+
+    this.inventoryState = {
+      items: clonedItems,
+      lastModified: data.lastModified || Date.now(),
+      nextId: this.calculateNextInventoryId(clonedItems)
+    };
+  }
+
+  private static getInventorySnapshot(componentId: string): InventoryStorageData {
+    if (this.isBrowserStorageAvailable()) {
+      const { storageKey, legacyKey } = this.getComponentStorageKeys(componentId, 'inventory');
+      const existingData = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyKey);
+
+      if (existingData) {
+        try {
+          const parsed = JSON.parse(existingData);
+          if (parsed && Array.isArray(parsed.items)) {
+            const snapshot: InventoryStorageData = {
+              items: parsed.items,
+              lastModified: parsed.lastModified || Date.now()
+            };
+            this.setInventoryState(snapshot);
+            return {
+              items: snapshot.items.map(item => ({ ...item })),
+              lastModified: snapshot.lastModified
+            };
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to parse inventory data from storage:', error);
+        }
+      }
+    }
+
+    return {
+      items: this.inventoryState.items.map(item => ({ ...item })),
+      lastModified: this.inventoryState.lastModified
+    };
+  }
+
+  private static persistInventoryData(componentId: string, data: InventoryStorageData) {
+    const normalized: InventoryStorageData = {
+      items: Array.isArray(data.items) ? data.items.map(item => ({ ...item })) : [],
+      lastModified: data.lastModified || Date.now()
+    };
+
+    if (this.isBrowserStorageAvailable()) {
+      const { storageKey, legacyKey } = this.getComponentStorageKeys(componentId, 'inventory');
+      try {
+        const serializedData = JSON.stringify(normalized);
+        window.localStorage.setItem(storageKey, serializedData);
+        if (legacyKey !== storageKey) {
+          window.localStorage.setItem(legacyKey, serializedData);
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to persist inventory data to storage:', error);
+      }
+    }
+
+    this.setInventoryState(normalized);
+  }
   
+  private static buildInventoryDescription(items: InventoryItem[]): string {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '背包是空的。';
+    }
+
+    const description = items.map(item => {
+      const detail = item.description ? ` - ${item.description}` : '';
+      return `${item.name} x${item.quantity}${detail}`;
+    }).join('\n');
+
+    return `背包中有 ${items.length} 种物品：\n${description}`;
+  }
+
+  private static loadHtmlComponentInitializers() {
+    if (this.htmlComponentInitializersLoaded) {
+      return;
+    }
+
+    this.htmlComponentInitializersLoaded = true;
+
+    if (!this.isBrowserStorageAvailable()) {
+      return;
+    }
+
+    try {
+      const cached = window.localStorage.getItem(this.HTML_COMPONENT_INITIALIZER_STORAGE_KEY);
+      if (!cached) {
+        return;
+      }
+
+      const parsed = JSON.parse(cached);
+      if (!parsed || typeof parsed !== 'object') {
+        return;
+      }
+
+      Object.entries(parsed as Record<string, HtmlComponentInitializerDescriptor[]>)
+        .forEach(([componentId, initializerList]) => {
+          if (!Array.isArray(initializerList)) {
+            return;
+          }
+
+          const sanitizedList = initializerList
+            .map(initializer => this.sanitizeInitializer(initializer))
+            .filter((initializer): initializer is HtmlComponentInitializerDescriptor => initializer !== null);
+
+          if (sanitizedList.length > 0) {
+            this.htmlComponentInitializers.set(componentId, sanitizedList);
+          }
+        });
+    } catch (error) {
+      console.warn('⚠️ Failed to load HTML component initializers:', error);
+    }
+  }
+
+  private static persistHtmlComponentInitializers() {
+    if (!this.isBrowserStorageAvailable()) {
+      return;
+    }
+
+    try {
+      const serialized = JSON.stringify(Object.fromEntries(this.htmlComponentInitializers));
+      window.localStorage.setItem(this.HTML_COMPONENT_INITIALIZER_STORAGE_KEY, serialized);
+    } catch (error) {
+      console.warn('⚠️ Failed to persist HTML component initializers:', error);
+    }
+  }
+
+  private static sanitizeInitializer(initializer: HtmlComponentInitializerDescriptor | null | undefined): HtmlComponentInitializerDescriptor | null {
+    if (!initializer || typeof initializer !== 'object') {
+      return null;
+    }
+
+    if (initializer.type !== 'storage_seed') {
+      console.warn('⚠️ Unsupported HTML component initializer type:', (initializer as any)?.type);
+      return null;
+    }
+
+    const storageKey = typeof initializer.storageKey === 'string' && initializer.storageKey.trim().length > 0
+      ? initializer.storageKey.trim()
+      : 'default';
+
+    const mode: HtmlComponentInitializerMode = initializer.mode ?? 'ifEmpty';
+
+    let dataClone: unknown;
+    if (initializer.data === undefined) {
+      dataClone = {};
+    } else {
+      try {
+        if (typeof structuredClone === 'function') {
+          dataClone = structuredClone(initializer.data);
+        } else {
+          dataClone = JSON.parse(JSON.stringify(initializer.data));
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to clone HTML component initializer data:', error);
+        try {
+          dataClone = JSON.parse(JSON.stringify(initializer.data));
+        } catch (innerError) {
+          console.warn('⚠️ Failed to JSON clone HTML component initializer data:', innerError);
+          return null;
+        }
+      }
+    }
+
+    return {
+      type: 'storage_seed',
+      storageKey,
+      data: dataClone,
+      mode,
+      description: initializer.description
+    };
+  }
+
+  private static isStoredDataEmpty(payload: unknown): boolean {
+    if (payload === null || payload === undefined) {
+      return true;
+    }
+
+    if (Array.isArray(payload)) {
+      return payload.length === 0;
+    }
+
+    if (typeof payload === 'object') {
+      const obj = payload as Record<string, unknown>;
+      if (Array.isArray(obj.items)) {
+        return obj.items.length === 0;
+      }
+      return Object.keys(obj).length === 0;
+    }
+
+    return false;
+  }
+
+  private static sanitizeInventorySeed(data: unknown): InventoryStorageData {
+    const timestamp = Date.now();
+
+    if (!data || typeof data !== 'object') {
+      return {
+        items: [],
+        lastModified: timestamp
+      };
+    }
+
+    const source = data as Partial<InventoryStorageData>;
+    const items = Array.isArray(source.items) ? source.items : [];
+
+    const normalizedItems = items.map((item, index) => {
+      if (!item || typeof item !== 'object') {
+        return {
+          id: `item_${this.inventoryState.nextId + index}`,
+          name: '未知物品',
+          description: '',
+          quantity: 1,
+          timestamp
+        } as InventoryItem;
+      }
+
+      const safeItem = item as Partial<InventoryItem>;
+      return {
+        id: typeof safeItem.id === 'string' && safeItem.id.trim().length > 0 ? safeItem.id : `item_${this.inventoryState.nextId + index}`,
+        name: safeItem.name || '未知物品',
+        description: safeItem.description || '',
+        quantity: typeof safeItem.quantity === 'number' && Number.isFinite(safeItem.quantity) ? safeItem.quantity : 1,
+        timestamp: safeItem.timestamp || timestamp
+      } satisfies InventoryItem;
+    });
+
+    return {
+      items: normalizedItems,
+      lastModified: source.lastModified || timestamp
+    };
+  }
+
+  private static applyStorageSeedInitializer(
+    componentId: string,
+    initializer: HtmlComponentInitializerDescriptor,
+    context: { reason: 'register' | 'story'; story?: Story } = { reason: 'register' }
+  ) {
+    if (!this.isBrowserStorageAvailable()) {
+      return;
+    }
+
+    const storageNamespace = initializer.storageKey;
+    const { storageKey, legacyKey } = this.getComponentStorageKeys(componentId, storageNamespace);
+
+    let existingValue: unknown = null;
+    const raw = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyKey);
+    if (raw) {
+      try {
+        existingValue = JSON.parse(raw);
+      } catch (error) {
+        console.warn('⚠️ Failed to parse existing HTML component storage value:', error);
+        existingValue = raw;
+      }
+    }
+
+    const mode = initializer.mode ?? 'ifEmpty';
+    let shouldApply = false;
+
+    switch (mode) {
+      case 'always':
+        shouldApply = true;
+        break;
+      case 'ifMissing':
+        shouldApply = existingValue === null;
+        break;
+      case 'ifEmpty':
+      default:
+        shouldApply = existingValue === null || this.isStoredDataEmpty(existingValue);
+        break;
+    }
+
+    if (!shouldApply) {
+      return;
+    }
+
+    try {
+      if (storageNamespace === 'inventory') {
+        const seedData = this.sanitizeInventorySeed(initializer.data);
+        this.persistInventoryData(componentId, seedData);
+      } else {
+        const serializedData = JSON.stringify(initializer.data);
+        window.localStorage.setItem(storageKey, serializedData);
+        if (legacyKey !== storageKey) {
+          window.localStorage.setItem(legacyKey, serializedData);
+        }
+      }
+
+      console.log(`✅ Applied HTML component initializer '${storageNamespace}' for component ${componentId} (reason: ${context.reason})`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to apply HTML component initializer for ${componentId}:`, error);
+    }
+  }
+
+  static registerHtmlComponentInitializer(componentId: string, initializer: HtmlComponentInitializerDescriptor) {
+    this.loadHtmlComponentInitializers();
+
+    const sanitized = this.sanitizeInitializer(initializer);
+    if (!sanitized) {
+      return;
+    }
+
+    const existing = this.htmlComponentInitializers.get(componentId) ?? [];
+    const filtered = existing.filter(item => !(item.type === sanitized.type && item.storageKey === sanitized.storageKey));
+    filtered.push(sanitized);
+    this.htmlComponentInitializers.set(componentId, filtered);
+
+    this.persistHtmlComponentInitializers();
+
+    this.applyStorageSeedInitializer(componentId, sanitized, { reason: 'register' });
+  }
+
+  static applyHtmlComponentInitializers(story: Story) {
+    if (!story?.library) {
+      return;
+    }
+
+    this.loadHtmlComponentInitializers();
+
+    if (!this.isBrowserStorageAvailable()) {
+      return;
+    }
+
+    story.library
+      .filter(card => card.type === 'html' && card.id)
+      .forEach(card => {
+        const componentId = card.id;
+        if (!this.htmlComponentInitializers.has(componentId)) {
+          const extractedInitializer = this.extractInitializerFromHtmlCard(card);
+          if (extractedInitializer) {
+            this.registerHtmlComponentInitializer(componentId, extractedInitializer);
+          }
+        }
+        const initializers = this.htmlComponentInitializers.get(componentId);
+
+        if (!initializers || initializers.length === 0) {
+          return;
+        }
+
+        initializers.forEach(initializer => {
+          if (initializer.type === 'storage_seed') {
+            this.applyStorageSeedInitializer(componentId, initializer, { reason: 'story', story });
+          }
+        });
+      });
+  }
+
+  private static extractInitializerFromHtmlCard(card: LibraryCard): HtmlComponentInitializerDescriptor | null {
+    const jsSource = card.htmlData?.js;
+    if (!jsSource || typeof jsSource !== 'string') {
+      return null;
+    }
+
+    const markerRegex = /@component-initializer\s*=\s*({[^\n]+})/;
+    const match = jsSource.match(markerRegex);
+    if (!match) {
+      return null;
+    }
+
+    try {
+      const descriptor = JSON.parse(match[1]);
+      return descriptor as HtmlComponentInitializerDescriptor;
+    } catch (error) {
+      console.warn('⚠️ Failed to parse component initializer metadata:', error);
+      return null;
+    }
+  }
+
+  private static normalizeHtmlComponentResult(componentToolCall: any, result: any) {
+    const metadata = {
+      componentId: componentToolCall?.componentId,
+      componentToolName: componentToolCall?.toolName
+    };
+
+    if (result && typeof result === 'object') {
+      const normalized = { ...result };
+      if (typeof normalized.success !== 'boolean') {
+        normalized.success = true;
+      }
+      return {
+        ...normalized,
+        ...metadata
+      };
+    }
+
+    return {
+      success: true,
+      result,
+      ...metadata
+    };
+  }
+
+  /**
+   * 设置HTML组件通信回调
+   */
+  static setHtmlComponentCallback(callback: (componentToolCall: any) => Promise<any>) {
+    this.htmlComponentCallback = callback;
+    console.log('🔗 HTML component callback registered');
+  }
+
+  /**
+   * 调用真实的HTML组件工具
+   */
+  private static async callRealHtmlComponentTool(componentToolCall: any): Promise<any> {
+    if (this.htmlComponentCallback) {
+      try {
+        console.log(`🔄 Calling real HTML component tool: ${componentToolCall.toolName}`);
+        const result = await this.htmlComponentCallback(componentToolCall);
+        console.log(`✅ Real HTML component tool response:`, result);
+        return result;
+      } catch (error) {
+        console.error(`❌ Real HTML component tool failed:`, error);
+        return null;
+      }
+    } else {
+      console.log(`⚠️ No HTML component callback registered`);
+      return null;
+    }
+  }
+
+  /**
+   * 将模拟的工具调用更改同步到HTML组件存储中
+   */
+  private static async syncStorageAfterHtmlTool(componentToolCall: any, toolResponse: any): Promise<void> {
+    try {
+      const { componentId, toolName, args } = componentToolCall;
+
+      // 只处理库存相关的工具
+      if (!['add_item', 'remove_item'].includes(toolName)) {
+        return;
+      }
+
+      console.log(`🔄 Syncing ${toolName} result to HTML component storage`);
+
+      // 构造存储数据同步调用
+      if (toolName === 'add_item' && toolResponse.success) {
+        const { name, description = '', quantity = 1 } = args;
+        const normalizedQuantity = Number(quantity) || 1;
+
+        // 模拟通过储存接口添加物品到HTML组件
+        const inventoryData = this.getInventorySnapshot(componentId);
+
+        // 查找是否已存在相同物品
+        const existingItem = inventoryData.items.find(item => item.name === name);
+
+        if (existingItem) {
+          const currentQuantity = Number(existingItem.quantity) || 0;
+          existingItem.quantity = currentQuantity + normalizedQuantity;
+          existingItem.timestamp = Date.now();
+        } else {
+          inventoryData.items.push({
+            id: `item_${this.inventoryState.nextId++}`,
+            name,
+            description,
+            quantity: normalizedQuantity,
+            timestamp: Date.now()
+          });
+        }
+
+        inventoryData.lastModified = Date.now();
+        this.persistInventoryData(componentId, inventoryData);
+
+        console.log(`✅ Synced add_item to HTML component storage: ${name} x${normalizedQuantity}`);
+
+      } else if (toolName === 'remove_item' && toolResponse.success) {
+        const { itemName, quantity: removeQuantity } = args;
+        const normalizedQuantity = removeQuantity ? Number(removeQuantity) : undefined;
+
+        const inventoryData = this.getInventorySnapshot(componentId);
+        const itemIndex = inventoryData.items.findIndex(item => item.name === itemName);
+
+        if (itemIndex !== -1) {
+          const targetItem = inventoryData.items[itemIndex];
+          const currentQuantity = Number(targetItem.quantity) || 0;
+
+          if (!normalizedQuantity || normalizedQuantity >= currentQuantity) {
+            // 完全移除物品
+            inventoryData.items.splice(itemIndex, 1);
+          } else {
+            // 部分移除
+            targetItem.quantity = currentQuantity - normalizedQuantity;
+            targetItem.timestamp = Date.now();
+          }
+
+          inventoryData.lastModified = Date.now();
+          this.persistInventoryData(componentId, inventoryData);
+
+          console.log(`✅ Synced remove_item to HTML component storage: ${itemName}`);
+        }
+
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to sync HTML component change to storage:`, error);
+    }
+  }
+
   static initialize() {
     if (this.initialized) return;
     
     console.log('🎮 Initializing Game Engine...');
     GameToolRegistry.initialize();
+    this.loadHtmlComponentInitializers();
     this.initialized = true;
     console.log('✅ Game Engine initialized');
   }
@@ -47,6 +610,7 @@ export class GameEngine {
   static resetSession() {
     console.log('🔄 Resetting GameEngine session state');
     this.detectedLLMProvider = null;
+    this.loadHtmlComponentInitializers();
   }
 
   /**
@@ -156,6 +720,7 @@ export class GameEngine {
     let currentMessages = this.buildPromptParts(history, memories, settings, gameContext.activeStory).openAIMessages;
     let allToolsUsed: string[] = [];
     let allToolResults: ToolResult[] = [];
+    let lastRawResponse = '';
     let maxIterations = 5; // 防止无限循环
     let iteration = 0;
     let retryCount = 0;
@@ -174,6 +739,7 @@ export class GameEngine {
         abortSignal,
         turnCount
       );
+      lastRawResponse = aiResult.rawResponse || lastRawResponse;
       
       if (!aiResult.toolCalls || aiResult.toolCalls.length === 0) {
         console.log('⚠️ No tool calls in iteration, ending loop');
@@ -214,6 +780,12 @@ export class GameEngine {
       console.log(`🔄 Continuing to iteration ${iteration + 1}, tools used so far:`, allToolsUsed);
     }
     
+    // 如果已经收集到工具结果（未检测到终结工具时）
+    if (allToolResults.length > 0) {
+      console.log('✅ Multi-turn tool processing completed without terminal tools, building final result');
+      return await this.buildFinalResult(allToolResults, lastRawResponse || '[]', toolHandler, allToolsUsed);
+    }
+
     // 如果超过最大迭代次数或重试失败，创建error结果
     if (iteration >= maxIterations || retryCount >= maxRetries) {
       console.log('❌ Max iterations or retries reached, returning error result');
@@ -228,13 +800,13 @@ export class GameEngine {
         error: true
       };
     }
-    
-    // 如果超过最大迭代次数，创建fallback结果
-    console.log('⚠️ Reached maximum iterations, creating fallback result');
+
+    // 没有任何有效工具结果时的兜底处理
+    console.log('⚠️ No tool results produced, creating fallback result');
     const playerLocationData = allToolResults.find(tr => tr.toolName === 'set_player_location' && tr.success && tr.data?.playerLocation)?.data?.playerLocation || null;
     return {
       scene: this.createMinimalScene('游戏继续进行中...'),
-      rawResponse: 'Max iterations reached',
+      rawResponse: lastRawResponse || 'No tool calls executed',
       toolCalls: [],
       actionData: { actions: ['继续'], context: '继续游戏' },
       playerLocationData,
@@ -474,9 +1046,11 @@ export class GameEngine {
     for (const toolCall of toolCalls) {
       try {
         console.log(`🔧 Executing tool: ${toolCall.function?.name}`);
-        
+
         const result = await GameToolRegistry.executeTool(toolCall, gameContext);
-        
+
+        console.log(`🔍 DEBUG: Tool execution result for ${toolCall.function?.name}:`, JSON.stringify(result, null, 2));
+
         // 检查是否是需要转发给HTML组件的工具调用
         if (result.componentToolCall && result.componentToolCall.requiresComponentCall) {
           console.log(`🔄 Tool requires HTML component execution: ${toolCall.function?.name}`);
@@ -552,26 +1126,23 @@ export class GameEngine {
         timestamp: componentToolCall.timestamp
       });
       
-      // 模拟HTML组件工具执行（在实际实现中，这会通过postMessage发送到HTML组件）
-      // 这里返回一个标准化的响应，表示工具调用已经发起
-      const toolResponse = {
-        success: true,
-        componentToolExecution: {
-          componentId: componentToolCall.componentId,
-          componentName: htmlComponent.name,
-          toolName: componentToolCall.toolName,
-          executionStatus: 'initiated',
-          message: `HTML组件工具 '${componentToolCall.toolName}' 已发起执行`,
-          args: componentToolCall.args,
-          timestamp: componentToolCall.timestamp,
-          // 在实际实现中，这里会包含来自HTML组件的真实响应
-          simulatedResponse: this.simulateHtmlComponentResponse(componentToolCall)
-        }
-      };
-      
-      console.log(`✅ HTML component tool executed successfully: ${componentToolCall.toolName}`);
-      return toolResponse;
-      
+      // 尝试通过全局回调调用真实的HTML组件
+      const htmlComponentTool = await this.callRealHtmlComponentTool(componentToolCall);
+
+      if (htmlComponentTool) {
+        console.log(`✅ HTML component tool executed successfully: ${componentToolCall.toolName}`);
+        console.log(`🔧 DEBUG: Real tool response for ${componentToolCall.toolName}:`, htmlComponentTool);
+        return this.normalizeHtmlComponentResult(componentToolCall, htmlComponentTool);
+      } else {
+        // 如果无法调用真实组件，使用存储数据进行处理
+        const storageResponse = this.buildStorageHtmlComponentResponse(componentToolCall);
+        console.log(`📦 Using storage handler for ${componentToolCall.toolName}:`, storageResponse);
+
+        await this.syncStorageAfterHtmlTool(componentToolCall, storageResponse);
+
+        return this.normalizeHtmlComponentResult(componentToolCall, storageResponse);
+      }
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`❌ HTML component tool execution failed:`, error);
@@ -583,18 +1154,18 @@ export class GameEngine {
         timestamp: Date.now()
       });
       
-      return {
+      return this.normalizeHtmlComponentResult(componentToolCall, {
         success: false,
         error: errorMessage
-      };
+      });
     }
   }
 
   /**
-   * 模拟HTML组件响应（用于开发测试）
+   * 构建基于存储数据的HTML组件响应（在组件未挂载时使用）
    */
-  private static simulateHtmlComponentResponse(componentToolCall: any) {
-    const { toolName, args } = componentToolCall;
+  private static buildStorageHtmlComponentResponse(componentToolCall: any) {
+    const { toolName, args, componentId } = componentToolCall;
     
     // 根据工具名称模拟不同的响应
     switch (toolName) {
@@ -640,7 +1211,89 @@ export class GameEngine {
           };
         }
         break;
-      
+
+      // 库存系统工具
+      case 'view_inventory': {
+        const inventoryData = this.getInventorySnapshot(componentId);
+        const items = inventoryData.items.map(item => ({ ...item }));
+
+        if (items.length === 0) {
+          return {
+            success: true,
+            description: '背包是空的。',
+            itemCount: 0,
+            items: [],
+            lastModified: inventoryData.lastModified
+          };
+        }
+
+        return {
+          success: true,
+          description: this.buildInventoryDescription(items),
+          itemCount: items.length,
+          items: items.map(item => ({
+            name: item.name,
+            description: item.description,
+            quantity: item.quantity
+          })),
+          lastModified: inventoryData.lastModified
+        };
+      }
+
+      case 'add_item': {
+        const { name, description: itemDescription = '', quantity = 1 } = args;
+        const normalizedQuantity = Number(quantity) || 1;
+        const inventoryData = this.getInventorySnapshot(componentId);
+        const existingItem = inventoryData.items.find(item => item.name === name);
+
+        if (existingItem) {
+          const newQuantity = (Number(existingItem.quantity) || 0) + normalizedQuantity;
+          return {
+            success: true,
+            message: `成功添加物品 "${name}" x${normalizedQuantity} 到背包，总数量: ${newQuantity}`,
+            item: { name, description: itemDescription, quantity: newQuantity },
+            itemCount: inventoryData.items.length
+          };
+        }
+
+        return {
+          success: true,
+          message: `成功添加新物品 "${name}" x${normalizedQuantity} 到背包`,
+          item: { name, description: itemDescription, quantity: normalizedQuantity },
+          itemCount: inventoryData.items.length + 1
+        };
+      }
+
+      case 'remove_item': {
+        const { itemName, quantity: removeQuantity } = args;
+        const inventoryData = this.getInventorySnapshot(componentId);
+        const targetItem = inventoryData.items.find(item => item.name === itemName);
+
+        if (!targetItem) {
+          return {
+            success: false,
+            error: `背包中没有找到物品 "${itemName}"`
+          };
+        }
+
+        const normalizedQuantity = removeQuantity ? Number(removeQuantity) : undefined;
+        const currentQuantity = Number(targetItem.quantity) || 0;
+
+        if (!normalizedQuantity || normalizedQuantity >= currentQuantity) {
+          return {
+            success: true,
+            message: `成功移除物品 "${itemName}"`
+          };
+        }
+
+        const remaining = Math.max(currentQuantity - normalizedQuantity, 0);
+        return {
+          success: true,
+          message: `成功移除物品 "${itemName}" x${normalizedQuantity}，剩余: ${remaining}`,
+          remainingQuantity: remaining
+        };
+      }
+
       default:
         return {
           message: `HTML组件工具 '${toolName}' 执行完成`,
@@ -720,8 +1373,16 @@ export class GameEngine {
       });
       
       if (!toolResult.success || !toolResult.data) {
-        // 如果核心工具失败，标记错误
-        if (['advance_scene', 'show_dialogue'].includes(toolResult.toolName)) {
+        const isHtmlComponentFailure = Boolean(toolResult.data?.componentToolName || toolResult.data?.componentId);
+
+        if (isHtmlComponentFailure) {
+          error = true;
+          const toolLabel = toolResult.data?.componentToolName || toolResult.toolName;
+          const componentLabel = toolResult.data?.componentId ? `（组件: ${toolResult.data.componentId}）` : '';
+          const fallbackMessage = `HTML组件工具 ${toolLabel}${componentLabel} 执行失败`;
+          errorMessage = toolResult.error || fallbackMessage;
+        } else if (['advance_scene', 'show_dialogue'].includes(toolResult.toolName)) {
+          // 如果核心工具失败，标记错误
           error = true;
           errorMessage = toolResult.error || `Tool ${toolResult.toolName} failed`;
         }
@@ -847,6 +1508,15 @@ export class GameEngine {
       selectedTools.push(...otherTools);
     } else {
       console.log('🎯 Using conservative tool set');
+      // 即使在保守模式下，也要包含内容相关的工具
+      const contentBasedTools = ['get_available_html_components', 'get_available_maps'];
+      const availableContentTools = contentBasedTools.filter(tool =>
+        GameToolRegistry.getTools().some(registeredTool => registeredTool.name === tool)
+      );
+      if (availableContentTools.length > 0) {
+        console.log('🔧 Adding available content-based tools to conservative set:', availableContentTools);
+        selectedTools.push(...availableContentTools);
+      }
     }
     
     // 确保至少有一个核心工具

@@ -289,6 +289,61 @@ export default function GamePage(): React.ReactNode {
       return stats;
     };
 
+    // 设置HTML组件回调以支持真实组件调用
+    // 使用一个函数包装以访问当前状态
+    const htmlComponentCallback = async (componentToolCall: any) => {
+      console.log('🔄 GamePage received HTML component tool call:', componentToolCall);
+
+      // 由于闭包问题，这里需要重新获取当前状态
+      // 通过DOM查询来检查HTML组件是否打开
+      const iframe = document.querySelector('iframe[srcdoc]') as HTMLIFrameElement;
+      if (iframe && iframe.contentWindow) {
+        console.log('✅ Found HTML component iframe, delegating tool call');
+
+        // 通过postMessage调用HTML组件中的真实函数
+        return new Promise((resolve, reject) => {
+          // 创建唯一的调用ID
+          const callId = `tool_call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+          // 监听响应
+          const handleResponse = (event: MessageEvent) => {
+            if (event.data.callId === callId) {
+              window.removeEventListener('message', handleResponse);
+              if (event.data.action === 'TOOL_RESPONSE') {
+                console.log('✅ Received tool response:', event.data.payload);
+                resolve(event.data.payload);
+              } else if (event.data.action === 'TOOL_ERROR') {
+                console.error('❌ Tool execution error:', event.data.payload);
+                reject(new Error(event.data.payload.error || 'Tool execution failed'));
+              }
+            }
+          };
+
+          window.addEventListener('message', handleResponse);
+
+          // 发送工具调用消息到iframe
+          iframe.contentWindow.postMessage({
+            action: 'CALL_TOOL',
+            payload: {
+              toolName: componentToolCall.toolName,
+              args: componentToolCall.args
+            },
+            callId
+          }, '*');
+
+          // 设置超时
+          setTimeout(() => {
+            window.removeEventListener('message', handleResponse);
+            reject(new Error('Tool call timeout'));
+          }, 10000);
+        });
+      } else {
+        return null;
+      }
+    };
+
+    GameEngine.setHtmlComponentCallback(htmlComponentCallback);
+
     // 调试工具已准备好，但不输出日志以避免控制台污染
   }, []); // 空依赖数组，只在组件挂载时执行一次
 
@@ -397,7 +452,8 @@ export default function GamePage(): React.ReactNode {
   const startNewSession = useCallback((story: Story, userName?: string, charName?: string) => {
     // 重置GameEngine会话状态（包括LLM提供商检测）
     GameEngine.resetSession();
-    
+    GameEngine.applyHtmlComponentInitializers(story);
+
     const openingMonologue = parseContent(story.openingMonologue);
     
     const monologueScene: SceneFragment = {
@@ -502,11 +558,14 @@ export default function GamePage(): React.ReactNode {
   useEffect(() => {
     if (!activeStory) return;
 
+    GameEngine.applyHtmlComponentInitializers(activeStory);
+
     // If continuing an existing game with saved placeholder values
     if (existingPlaythrough && gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0) {
       // Apply saved placeholder values and set processed story
       const replacedStory = applyPlaceholdersToStory(activeStory, gameState.placeholderValues);
       setProcessedStory(replacedStory);
+      setLastPlaceholderValues(gameState.placeholderValues);
 
       // Don't start a new session since we're continuing an existing game
       console.log('Continuing game with existing playthrough and placeholder values');
@@ -1086,7 +1145,36 @@ export default function GamePage(): React.ReactNode {
             });
           }
           return;
-          
+
+        case 'REGISTER_INITIALIZER':
+          try {
+            const targetComponentId = payload?.componentId;
+            if (!targetComponentId) {
+              throw new Error('缺少组件ID，无法注册初始化逻辑');
+            }
+
+            const initializerDescriptor = payload?.initializer ?? payload;
+            GameEngine.registerHtmlComponentInitializer(targetComponentId, initializerDescriptor);
+
+            responseAction = 'REGISTER_INITIALIZER_SUCCESS';
+            responsePayload = { success: true };
+            logCommunication('html_component_initializer_registered', {
+              componentId: targetComponentId,
+              initializer: initializerDescriptor
+            });
+          } catch (error) {
+            responseAction = 'REGISTER_INITIALIZER_ERROR';
+            responsePayload = {
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            };
+            logCommunication('html_component_initializer_error', {
+              componentId: payload?.componentId,
+              error: responsePayload.error
+            });
+          }
+          break;
+
         case 'LOG_MESSAGE':
           // 记录组件日志
           logCommunication('html_component_log', payload);

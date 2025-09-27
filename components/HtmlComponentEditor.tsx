@@ -9,12 +9,46 @@ interface HtmlComponentEditorProps {
   showPreview?: boolean; // 控制是否显示内置预览窗口
 }
 
-type EditorTab = 'html' | 'css' | 'js';
+type EditorTab = 'html' | 'css' | 'js' | 'guide';
 
 const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onChange, isFullscreen = false, showPreview = true }) => {
   const [activeTab, setActiveTab] = useState<EditorTab>('html');
   const [srcDoc, setSrcDoc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const componentGuideSections = [
+    {
+      title: '静态工具描述 (无需等待 iframe 加载)',
+      tips: [
+        '在 JavaScript 中声明工具对象，例如 `const viewInventoryTool = { name: "view_inventory", description: "查看背包" }`，并包含 `parameters` 字段。',
+        'GameToolRegistry 会在故事加载时解析这些对象，将工具注册给 AI，即使组件尚未打开也能被调用。',
+        '工具真正的执行逻辑仍需在组件运行时通过 `window.tool_<name>` 函数提供，请在 JS 中确保暴露对应处理逻辑。'
+      ]
+    },
+    {
+      title: '初始化本地存储数据',
+      tips: [
+        '使用 `window.gameAPI.component.registerInitializer({...})` 可在故事初始化时写入 localStorage（如背包初始物品）。',
+        '或在 JS 顶部添加注释：`// @component-initializer={"type":"storage_seed",...}`，引擎会自动解析并应用。',
+        '`mode: "ifEmpty"` 表示仅在存储为空时覆盖，`storageKey` 控制命名空间（默认 `inventory`）。'
+      ]
+    },
+    {
+      title: '回退机制说明',
+      tips: [
+        '当 iframe 未打开时，HTML 工具调用会使用存储数据进行回退，这保证了 AI 工具在纯对话流程中仍然可用。',
+        '请确保关键数据在初始化或工具执行后同步到 localStorage，避免回退时信息缺失。'
+      ]
+    },
+    {
+      title: '常用片段示例',
+      tips: [
+        '`const addItemTool = { name: "add_item", description: "添加物品", parameters: {...} };`',
+        '`// @component-initializer={"type":"storage_seed","storageKey":"inventory","mode":"ifEmpty","data":{...}}`',
+        '`await window.gameAPI.component.registerInitializer(() => ({ type: "storage_seed", storageKey: "inventory", data: {...} }));`'
+      ]
+    }
+  ];
 
   // 默认代码模板
   const defaultCode = {
@@ -23,7 +57,7 @@ const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onC
     <h2><i class="fas fa-gamepad"></i> 游戏组件测试</h2>
     <p>测试HTML组件的各项功能</p>
   </header>
-  
+
   <div class="test-section">
     <h3><i class="fas fa-mouse-pointer"></i> 交互测试</h3>
     <div class="button-group">
@@ -33,7 +67,7 @@ const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onC
       <button id="load-test-btn" class="btn warning">加载测试</button>
     </div>
   </div>
-  
+
   <div class="test-section">
     <h3><i class="fas fa-edit"></i> 输入测试</h3>
     <div class="input-group">
@@ -50,7 +84,7 @@ const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onC
       </select>
     </div>
   </div>
-  
+
   <div class="test-section">
     <h3><i class="fas fa-chart-bar"></i> 状态显示</h3>
     <div id="status-display" class="status-panel">
@@ -68,7 +102,7 @@ const HtmlComponentEditor: React.FC<HtmlComponentEditorProps> = ({ htmlData, onC
       </div>
     </div>
   </div>
-  
+
   <div class="test-section">
     <h3><i class="fas fa-terminal"></i> 日志输出</h3>
     <div id="log-output" class="log-panel"></div>
@@ -103,12 +137,12 @@ body {
 }
 
 #game-component {
-  max-width: 800px;
-  margin: auto;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1.5rem;
   background-color: var(--card-bg);
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+  border-radius: 10px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .component-header {
@@ -119,53 +153,64 @@ body {
 }
 
 .component-header h2 {
-  margin: 0;
   color: var(--primary-color);
+  margin: 0 0 0.5rem 0;
   font-size: 1.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .component-header p {
-  margin: 0.5rem 0 0 0;
+  margin: 0;
   color: #a0aec0;
+  font-size: 1rem;
 }
 
 .test-section {
-  margin: 2rem 0;
+  margin: 1.5rem 0;
   padding: 1.5rem;
-  background-color: rgba(255,255,255,0.05);
+  background-color: var(--input-bg);
   border-radius: 8px;
   border-left: 4px solid var(--primary-color);
 }
 
 .test-section h3 {
-  margin: 0 0 1rem 0;
   color: var(--text-color);
+  margin: 0 0 1rem 0;
   font-size: 1.2rem;
-}
-
-.button-group {
   display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin: 1rem 0;
-}
-
-.btn {
-  padding: 0.75rem 1.25rem;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: all 0.2s;
-  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
 }
 
+.button-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.btn {
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn:active {
+  transform: translateY(0);
 }
 
 .btn.primary {
@@ -194,7 +239,7 @@ body {
 }
 
 .btn.small {
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.8rem;
 }
 
@@ -249,100 +294,101 @@ body {
 }
 
 .log-panel {
-  background-color: #1a1a1a;
-  border: 2px solid var(--border-color);
-  border-radius: 6px;
-  padding: 1rem;
-  height: 150px;
-  overflow-y: auto;
+  background-color: #000;
+  color: #0f0;
   font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
-  white-space: pre-wrap;
-  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 6px;
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  border: 1px solid #333;
 }
 
 .log-entry {
   margin: 0.25rem 0;
-  padding: 0.25rem;
-  border-left: 3px solid transparent;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #222;
 }
 
-.log-entry.info {
-  color: #63b3ed;
-  border-left-color: #63b3ed;
-}
+.log-entry.info { color: #0ff; }
+.log-entry.success { color: #0f0; }
+.log-entry.warning { color: #ff0; }
+.log-entry.error { color: #f00; }
 
-.log-entry.success {
-  color: #68d391;
-  border-left-color: #68d391;
-}
+@media (max-width: 768px) {
+  .button-group {
+    grid-template-columns: 1fr;
+  }
 
-.log-entry.warning {
-  color: #fbd38d;
-  border-left-color: #fbd38d;
-}
+  .input-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-.log-entry.error {
-  color: #fc8181;
-  border-left-color: #fc8181;
-}
+  .input-field, .select-field {
+    min-width: unset;
+  }
 
-.log-timestamp {
-  opacity: 0.7;
-  font-size: 0.7rem;
+  .status-panel {
+    grid-template-columns: 1fr;
+  }
 }`,
 
-    js: htmlData.js || `// HTML组件功能测试代码
-console.log('🎮 HTML组件测试模块已加载');
-
-// 状态管理
-let componentState = {
+    js: htmlData.js || `// 组件状态管理
+const componentState = {
   clickCount: 0,
   lastInput: '',
   selectedOption: '',
   testResults: []
 };
 
-// DOM元素
+// DOM元素引用
 const elements = {
   basicBtn: document.getElementById('basic-btn'),
   aiTestBtn: document.getElementById('ai-test-btn'),
   saveTestBtn: document.getElementById('save-test-btn'),
   loadTestBtn: document.getElementById('load-test-btn'),
   processInputBtn: document.getElementById('process-input-btn'),
-  clearLogBtn: document.getElementById('clear-log-btn'),
-  
   testInput: document.getElementById('test-input'),
   testSelect: document.getElementById('test-select'),
-  
   clickCount: document.getElementById('click-count'),
   lastInput: document.getElementById('last-input'),
   selectedOption: document.getElementById('selected-option'),
-  logOutput: document.getElementById('log-output')
+  logOutput: document.getElementById('log-output'),
+  clearLogBtn: document.getElementById('clear-log-btn')
 };
 
-// 日志系统
+// 日志功能
 function addLog(message, type = 'info') {
   const timestamp = new Date().toLocaleTimeString();
   const logEntry = document.createElement('div');
   logEntry.className = \`log-entry \${type}\`;
-  logEntry.innerHTML = \`<span class="log-timestamp">[\${timestamp}]</span> \${message}\`;
-  
+  logEntry.innerHTML = \`[\${timestamp}] \${message}\`;
+
   elements.logOutput.appendChild(logEntry);
   elements.logOutput.scrollTop = elements.logOutput.scrollHeight;
-  
-  // 同时发送到游戏引擎日志（不等待响应）
-  if (window.gameAPI) {
-    window.gameAPI.game.logMessage(message, type);
+
+  // 限制日志条数
+  const entries = elements.logOutput.children;
+  if (entries.length > 100) {
+    elements.logOutput.removeChild(entries[0]);
   }
 }
 
-// 更新状态显示
+// 状态显示更新
 function updateStatusDisplay() {
-  elements.clickCount.textContent = componentState.clickCount;
-  elements.lastInput.textContent = componentState.lastInput || '无';
-  elements.selectedOption.textContent = componentState.selectedOption || '无';
+  if (elements.clickCount) elements.clickCount.textContent = componentState.clickCount;
+  if (elements.lastInput) elements.lastInput.textContent = componentState.lastInput || '无';
+  if (elements.selectedOption) elements.selectedOption.textContent = componentState.selectedOption || '无';
 }
+
+// 初始化
+document.addEventListener('DOMContentLoaded', () => {
+  addLog('组件初始化完成', 'success');
+  updateStatusDisplay();
+});
 
 // 基础按钮测试
 elements.basicBtn?.addEventListener('click', () => {
@@ -354,29 +400,29 @@ elements.basicBtn?.addEventListener('click', () => {
 // AI功能测试
 elements.aiTestBtn?.addEventListener('click', async () => {
   addLog('开始测试AI功能...', 'info');
-  
+
   if (!window.gameAPI) {
     addLog('错误: gameAPI不可用', 'error');
     return;
   }
-  
+
   try {
     const prompt = '请生成一句鼓励玩家的话';
     addLog(\`发送AI请求: \${prompt}\`, 'info');
-    
+
     const response = await window.gameAPI.ai.generate(prompt);
     addLog(\`AI响应: \${response}\`, 'success');
-    
+
     componentState.testResults.push({
       type: 'ai_test',
       timestamp: new Date().toISOString(),
       result: 'success',
       data: response
     });
-    
+
   } catch (error) {
     addLog(\`AI测试失败: \${error.message}\`, 'error');
-    
+
     componentState.testResults.push({
       type: 'ai_test',
       timestamp: new Date().toISOString(),
@@ -389,23 +435,23 @@ elements.aiTestBtn?.addEventListener('click', async () => {
 // 保存功能测试
 elements.saveTestBtn?.addEventListener('click', async () => {
   addLog('开始测试保存功能...', 'info');
-  
+
   if (!window.gameAPI) {
     addLog('错误: gameAPI不可用', 'error');
     return;
   }
-  
+
   try {
     const testData = {
       ...componentState,
       timestamp: new Date().toISOString(),
       message: '这是测试保存的数据'
     };
-    
+
     await window.gameAPI.storage.save('test_data', testData);
     addLog('数据保存成功！', 'success');
     addLog(\`保存的数据: \${JSON.stringify(testData, null, 2)}\`, 'info');
-    
+
   } catch (error) {
     addLog(\`保存失败: \${error.message}\`, 'error');
   }
@@ -414,19 +460,19 @@ elements.saveTestBtn?.addEventListener('click', async () => {
 // 加载功能测试
 elements.loadTestBtn?.addEventListener('click', async () => {
   addLog('开始测试加载功能...', 'info');
-  
+
   if (!window.gameAPI) {
     addLog('错误: gameAPI不可用', 'error');
     return;
   }
-  
+
   try {
     const loadedData = await window.gameAPI.storage.load('test_data');
-    
+
     if (loadedData) {
       addLog('数据加载成功！', 'success');
       addLog(\`加载的数据: \${JSON.stringify(loadedData, null, 2)}\`, 'info');
-      
+
       // 可选：恢复部分状态
       if (loadedData.clickCount) {
         componentState.clickCount = loadedData.clickCount;
@@ -436,7 +482,7 @@ elements.loadTestBtn?.addEventListener('click', async () => {
     } else {
       addLog('没有找到保存的数据', 'warning');
     }
-    
+
   } catch (error) {
     addLog(\`加载失败: \${error.message}\`, 'error');
   }
@@ -445,259 +491,275 @@ elements.loadTestBtn?.addEventListener('click', async () => {
 // 输入处理测试
 elements.processInputBtn?.addEventListener('click', () => {
   const inputValue = elements.testInput?.value.trim();
-  
+
   if (!inputValue) {
     addLog('请先输入一些文字', 'warning');
     return;
   }
-  
+
   componentState.lastInput = inputValue;
   updateStatusDisplay();
   addLog(\`处理输入: "\${inputValue}"\`, 'info');
-  
+
+  componentState.testResults.push({
+    type: 'input_processed',
+    timestamp: new Date().toISOString(),
+    result: 'success',
+    data: inputValue
+  });
+
   // 清空输入框
-  elements.testInput.value = '';
-  
-  // 发送到游戏引擎
-  if (window.gameAPI) {
-    window.gameAPI.game.sendData({
-      type: 'user_input',
-      value: inputValue,
-      timestamp: new Date().toISOString()
-    });
-  }
+  if (elements.testInput) elements.testInput.value = '';
 });
 
-// 选择框变化监听
+// 选择框变化处理
 elements.testSelect?.addEventListener('change', (e) => {
   const selectedValue = e.target.value;
   componentState.selectedOption = selectedValue;
   updateStatusDisplay();
-  
+
   if (selectedValue) {
-    addLog(\`选择了选项: \${selectedValue}\`, 'info');
-    
-    // 发送选择到游戏引擎
-    if (window.gameAPI) {
-      window.gameAPI.game.sendData({
-        type: 'option_selected',
-        value: selectedValue,
-        timestamp: new Date().toISOString()
-      });
-    }
+    addLog(\`选择了选项: "\${selectedValue}"\`, 'info');
+  } else {
+    addLog('取消了选择', 'info');
   }
 });
 
 // 清除日志
 elements.clearLogBtn?.addEventListener('click', () => {
-  elements.logOutput.innerHTML = '';
-  addLog('日志已清除', 'info');
-});
-
-// 输入框回车支持
-elements.testInput?.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    elements.processInputBtn?.click();
+  if (elements.logOutput) {
+    elements.logOutput.innerHTML = '';
+    addLog('日志已清除', 'info');
   }
 });
 
-// AI工具定义示例
-function registerAITools() {
-  if (!window.gameAPI || !window.gameAPI.tools) {
-    addLog('⚠ AI工具接口不可用', 'warning');
-    return;
-  }
-  
-  try {
-    // 示例1: 注册计数器工具
-    const counterTool = window.gameAPI.tools.createDefinition(
-      'get_click_count',
-      '获取组件按钮的当前点击次数',
-      {
-        type: 'object',
-        properties: {},
-        required: []
+// 注册AI工具示例
+if (window.gameAPI && window.gameAPI.tools) {
+  const calcTool = {
+    name: 'calculate_metrics',
+    description: '计算组件使用指标',
+    parameters: {
+      type: 'object',
+      properties: {
+        metricType: {
+          type: 'string',
+          description: '指标类型：usage, performance, engagement'
+        }
       },
-      () => {
-        return {
-          success: true,
-          clickCount: componentState.clickCount,
-          message: \`按钮已被点击 \${componentState.clickCount} 次\`
-        };
-      }
-    );
-    
-    window.gameAPI.tools.register(counterTool);
-    addLog('✅ 注册AI工具: get_click_count', 'success');
-    
-    // 示例2: 注册状态查询工具
-    const statusTool = window.gameAPI.tools.create.dataQuery(
-      'query_component_status',
-      '查询HTML组件的当前状态',
-      (params) => {
-        const { query } = params;
-        
-        if (query === 'full') {
+      required: ['metricType']
+    },
+    handler: (params) => {
+      const { metricType } = params;
+
+      switch (metricType) {
+        case 'usage':
           return {
             success: true,
-            state: componentState,
-            timestamp: new Date().toISOString()
+            metrics: {
+              totalClicks: componentState.clickCount,
+              inputCount: componentState.testResults.filter(r => r.type === 'input_processed').length,
+              testResults: componentState.testResults.length
+            }
           };
-        } else if (query === 'summary') {
+        case 'performance':
+          const successfulTests = componentState.testResults.filter(r => r.result === 'success').length;
+          const totalTests = componentState.testResults.length;
           return {
             success: true,
-            summary: \`点击数: \${componentState.clickCount}, 最后输入: \${componentState.lastInput || '无'}\`
+            metrics: {
+              successRate: totalTests > 0 ? (successfulTests / totalTests * 100).toFixed(1) + '%' : '0%',
+              totalTests,
+              successfulTests
+            }
           };
-        } else {
+        case 'engagement':
+          return {
+            success: true,
+            metrics: {
+              interactionScore: Math.min(componentState.clickCount * 10 + componentState.testResults.length * 5, 100),
+              engagementLevel: componentState.clickCount > 10 ? '高' : componentState.clickCount > 5 ? '中' : '低'
+            }
+          };
+        default:
           return {
             success: false,
-            error: '不支持的查询类型，请使用 "full" 或 "summary"'
+            error: '不支持的指标类型'
           };
-        }
       }
-    );
-    
-    window.gameAPI.tools.register(statusTool);
-    addLog('✅ 注册AI工具: query_component_status', 'success');
-    
-    // 示例3: 注册状态更新工具
-    const updateTool = window.gameAPI.tools.create.stateUpdate(
-      'update_component_state',
-      '更新HTML组件的状态',
-      (params) => {
-        const { updates } = params;
-        
-        if (updates.clickCount !== undefined) {
-          componentState.clickCount = updates.clickCount;
-        }
-        if (updates.lastInput !== undefined) {
-          componentState.lastInput = updates.lastInput;
-        }
-        if (updates.selectedOption !== undefined) {
-          componentState.selectedOption = updates.selectedOption;
-        }
-        
-        updateStatusDisplay();
-        
-        return {
-          success: true,
-          message: '状态已更新',
-          newState: componentState
-        };
-      }
-    );
-    
-    window.gameAPI.tools.register(updateTool);
-    addLog('✅ 注册AI工具: update_component_state', 'success');
-    
-    // 示例4: 注册计算工具
-    const calcTool = window.gameAPI.tools.create.calculation(
-      'calculate_metrics',
-      '计算组件使用指标',
-      {
-        type: 'object',
-        properties: {
-          metricType: {
-            type: 'string',
-            description: '指标类型：usage, performance, engagement'
-          }
-        },
-        required: ['metricType']
-      },
-      (params) => {
-        const { metricType } = params;
-        
-        switch (metricType) {
-          case 'usage':
-            return {
-              success: true,
-              metrics: {
-                totalClicks: componentState.clickCount,
-                inputCount: componentState.testResults.filter(r => r.type === 'input_processed').length,
-                testResults: componentState.testResults.length
-              }
-            };
-          case 'performance':
-            const successfulTests = componentState.testResults.filter(r => r.result === 'success').length;
-            const totalTests = componentState.testResults.length;
-            return {
-              success: true,
-              metrics: {
-                successRate: totalTests > 0 ? (successfulTests / totalTests * 100).toFixed(1) + '%' : '0%',
-                totalTests,
-                successfulTests
-              }
-            };
-          case 'engagement':
-            return {
-              success: true,
-              metrics: {
-                interactionScore: Math.min(componentState.clickCount * 10 + componentState.testResults.length * 5, 100),
-                engagementLevel: componentState.clickCount > 10 ? '高' : componentState.clickCount > 5 ? '中' : '低'
-              }
-            };
-          default:
-            return {
-              success: false,
-              error: '不支持的指标类型'
-            };
-        }
-      }
-    );
-    
-    window.gameAPI.tools.register(calcTool);
-    addLog('✅ 注册AI工具: calculate_metrics', 'success');
-    
-    addLog('🛠️ 所有AI工具注册完成！AI现在可以调用这些工具。', 'success');
-    
-  } catch (error) {
-    addLog(\`❌ 注册AI工具时出错: \${error.message}\`, 'error');
-  }
-}
-
-// 初始化
-document.addEventListener('DOMContentLoaded', () => {
-  addLog('🎮 HTML组件测试界面已初始化', 'success');
-  addLog('所有功能按钮已准备就绪', 'info');
-  
-  // 检查gameAPI可用性
-  if (window.gameAPI) {
-    addLog('✓ gameAPI已连接', 'success');
-    
-    // 注册AI工具
-    setTimeout(() => {
-      registerAITools();
-    }, 500); // 延迟注册确保API完全就绪
-    
-  } else {
-    addLog('⚠ gameAPI不可用，某些功能可能无法工作', 'warning');
-  }
-  
-  updateStatusDisplay();
-});
-
-addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
+    }
   };
 
-  const [code, setCode] = useState({
-    html: defaultCode.html,
-    css: defaultCode.css,
-    js: defaultCode.js
-  });
+  window.gameAPI.tools.register(calcTool);
+  addLog('✅ 注册AI工具: calculate_metrics', 'success');
+}`
+  };
 
+  const [code, setCode] = useState(defaultCode);
+
+  // 生成HTML组件的完整内容
   const updatePreview = useCallback(() => {
-    setSrcDoc(`
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        </head>
-        <body>${code.html}</body>
-        <style>${code.css}</style>
-        <script type="module">${code.js}</script>
+    const { html, css, js } = code;
+
+    // 注入通信桥接代码
+    const bridgeScript = `
+      // HTML组件与宿主应用的通信桥接
+      let callIdCounter = 0;
+      const pendingCalls = new Map();
+
+      function postMessageToHost(action, payload) {
+        return new Promise((resolve, reject) => {
+          const callId = 'call_' + callIdCounter++;
+          console.log('📤 iframe发送请求:', { action, callId, payload });
+          pendingCalls.set(callId, { resolve, reject });
+          window.parent.postMessage({ action, payload, callId }, '*');
+          setTimeout(() => {
+            if (pendingCalls.has(callId)) {
+              reject(new Error('Request to host timed out.'));
+              pendingCalls.delete(callId);
+            }
+          }, 15000);
+        });
+      }
+
+      window.addEventListener('message', (event) => {
+        const { action, payload, callId } = event.data;
+        console.log('📨 iframe收到响应消息:', { action, callId, hasPayload: !!payload });
+
+        if (pendingCalls.has(callId)) {
+          console.log('✅ 找到对应的pending call, callId:', callId);
+          const { resolve, reject } = pendingCalls.get(callId);
+          if (payload && payload.error) {
+            console.log('❌ 响应包含错误:', payload.error);
+            reject(new Error(payload.error));
+          } else {
+            console.log('✅ 成功解析响应, payload:', payload);
+            resolve(payload);
+          }
+          pendingCalls.delete(callId);
+        } else {
+          console.log('⚠️ 未找到对应的pending call, callId:', callId, 'pending calls:', Array.from(pendingCalls.keys()));
+        }
+
+        // 处理特殊的log消息，这些消息不期待响应
+        if (callId && typeof callId === 'string' && callId.startsWith('log_')) {
+          // log消息不需要处理响应，直接忽略
+          return;
+        }
+      });
+
+      // 标准游戏API接口
+      window.gameAPI = {
+        // AI服务调用
+        ai: {
+          generate: (prompt, isJson = false, schema = null) =>
+            postMessageToHost('AI_REQUEST', { prompt, isJson, schema })
+        },
+
+        // 数据持久化
+        storage: {
+          save: (key, data) => postMessageToHost('SAVE_DATA', {
+            key: 'component_' + key,
+            data
+          }),
+          load: (key) => postMessageToHost('LOAD_DATA', {
+            key: 'component_' + key
+          })
+        },
+
+        // 游戏引擎交互
+        game: {
+          sendData: (data) => postMessageToHost('GAME_DATA', data),
+          updateState: (updates) => postMessageToHost('UPDATE_STATE', updates),
+          logMessage: (message, type = 'info') => {
+            // 日志消息不需要等待响应，直接发送
+            window.parent.postMessage({
+              action: 'LOG_MESSAGE',
+              payload: { message, type }
+            }, '*');
+          }
+        },
+
+        // AI工具定义和管理接口
+        tools: {
+          // 注册单个工具给AI系统
+          register: (toolDefinition) => {
+            if (!toolDefinition.name || !toolDefinition.description) {
+              throw new Error('Tool must have name and description');
+            }
+
+            if (!toolDefinition.handler || typeof toolDefinition.handler !== 'function') {
+              throw new Error('Tool must have a handler function');
+            }
+
+            // 存储处理函数到全局作用域
+            window['tool_' + toolDefinition.name] = toolDefinition.handler;
+
+            return postMessageToHost('REGISTER_TOOL', {
+              componentId: 'component',
+              name: toolDefinition.name,
+              description: toolDefinition.description,
+              parameters: toolDefinition.parameters || {
+                type: 'object',
+                properties: {},
+                required: []
+              },
+              jsFunction: 'tool_' + toolDefinition.name
+            });
+          },
+
+          // 批量注册多个工具
+          registerBatch: (toolDefinitions) => {
+            const results = [];
+            for (const toolDef of toolDefinitions) {
+              try {
+                results.push(window.gameAPI.tools.register(toolDef));
+              } catch (error) {
+                console.error('Failed to register tool:', toolDef.name, error);
+                results.push(Promise.reject(error));
+              }
+            }
+            return Promise.all(results);
+          },
+
+          // 取消注册工具
+          unregister: (toolName) => {
+            // 删除全局函数
+            if (window['tool_' + toolName]) {
+              delete window['tool_' + toolName];
+            }
+
+            return postMessageToHost('UNREGISTER_TOOL', {
+              componentId: 'component',
+              name: toolName
+            });
+          }
+        }
+      };
+    `;
+
+    const fullHTML = `
+      <!DOCTYPE html>
+      <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HTML组件</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>${css}</style>
+      </head>
+      <body>
+        ${html}
+        <script>
+          ${bridgeScript}
+
+          // 用户自定义JavaScript代码
+          ${js}
+        </script>
+      </body>
       </html>
-    `);
+    `;
+
+    setSrcDoc(fullHTML);
   }, [code.html, code.css, code.js]);
 
   // 实时预览更新
@@ -719,16 +781,54 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
   }, [code.html, code.css, code.js, htmlData.toolDefinitions]);
 
   const handleCodeChange = (tab: EditorTab, value: string) => {
+    if (tab === 'guide') {
+      return;
+    }
     setCode(prev => ({
       ...prev,
       [tab]: value
     }));
   };
 
-  const tabConfig = {
+  // 加载测试代码的函数
+  const loadTestCode = async (testType: 'default' | 'inventory') => {
+    try {
+      const filePrefix = testType === 'default' ? 'default-test' : 'inventory-test';
+
+      // 并行加载三个文件
+      const [htmlResponse, cssResponse, jsResponse] = await Promise.all([
+        fetch(`/test-templates/${filePrefix}.html`),
+        fetch(`/test-templates/${filePrefix}.css`),
+        fetch(`/test-templates/${filePrefix}.js`)
+      ]);
+
+      if (!htmlResponse.ok || !cssResponse.ok || !jsResponse.ok) {
+        throw new Error('无法加载测试文件');
+      }
+
+      const [html, css, js] = await Promise.all([
+        htmlResponse.text(),
+        cssResponse.text(),
+        jsResponse.text()
+      ]);
+
+      setCode({ html, css, js });
+      console.log('已加载' + (testType === 'default' ? '默认' : '背包') + '测试代码');
+
+    } catch (error) {
+      console.error('加载测试代码失败:', error);
+      alert('加载测试代码失败，请检查文件是否存在');
+    }
+  };
+
+  const editableTabs: EditorTab[] = ['html', 'css', 'js'];
+  const tabOrder: EditorTab[] = [...editableTabs, 'guide'];
+
+  const tabConfig: Record<EditorTab, { name: string; icon: string }> = {
     html: { name: 'HTML', icon: 'fas fa-code' },
     css: { name: 'CSS', icon: 'fab fa-css3-alt' },
-    js: { name: 'JavaScript', icon: 'fab fa-js-square' }
+    js: { name: 'JavaScript', icon: 'fab fa-js-square' },
+    guide: { name: '使用指南', icon: 'fas fa-book-open' }
   };
 
   return (
@@ -736,9 +836,9 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
       <div className={`${isFullscreen && showPreview ? 'grid grid-cols-1 xl:grid-cols-2 gap-4 flex-grow min-h-0' : 'flex flex-col gap-4'}`}>
         {/* Monaco 代码编辑器 */}
         <div className={`bg-gray-50 dark:bg-zinc-800 rounded-lg flex flex-col overflow-hidden ${isFullscreen ? '' : 'h-[48rem]'} ${!showPreview && isFullscreen ? 'col-span-full' : ''}`}>
-          {/* 标签页 */}
+          {/* 标签页和测试按钮 */}
           <div className="flex bg-gray-200 dark:bg-zinc-900">
-            {(['html', 'css', 'js'] as EditorTab[]).map(tab => (
+            {tabOrder.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -752,18 +852,64 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
                 <span>{tabConfig[tab].name}</span>
               </button>
             ))}
+
+            {/* 测试按钮区域 */}
+            <div className="ml-auto flex items-center space-x-2 px-4">
+              <button
+                onClick={() => loadTestCode('default')}
+                className="px-3 py-1 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors duration-200 flex items-center space-x-1"
+                title="加载默认测试代码"
+              >
+                <i className="fas fa-vial"></i>
+                <span>默认测试</span>
+              </button>
+              <button
+                onClick={() => loadTestCode('inventory')}
+                className="px-3 py-1 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors duration-200 flex items-center space-x-1"
+                title="加载背包功能测试代码"
+              >
+                <i className="fas fa-backpack"></i>
+                <span>背包测试</span>
+              </button>
+            </div>
           </div>
 
           {/* Monaco编辑区 */}
           <div className="flex-grow">
-            <MonacoEditorComponent
-              language={activeTab === 'js' ? 'javascript' : activeTab}
-              value={code[activeTab]}
-              onChange={(value) => handleCodeChange(activeTab, value)}
-              isFullscreen={false}
-              theme="dark"
-              placeholder={`输入${tabConfig[activeTab].name}代码...`}
-            />
+            {activeTab === 'guide' ? (
+              <div className="h-full overflow-y-auto bg-zinc-900/50 text-sm text-gray-200 p-6 space-y-6">
+                {componentGuideSections.map(section => (
+                  <section key={section.title} className="space-y-3">
+                    <h3 className="text-base font-semibold flex items-center gap-2 text-indigo-300">
+                      <i className="fas fa-lightbulb"></i>
+                      {section.title}
+                    </h3>
+                    <ul className="list-disc list-inside space-y-2 text-gray-300/90">
+                      {section.tips.map(item => (
+                        <li key={item} className="leading-6">
+                          <span dangerouslySetInnerHTML={{ __html: item.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-zinc-800/80 rounded text-indigo-200">$1</code>') }} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              (() => {
+                const safeTab = (activeTab === 'js' ? 'javascript' : activeTab) as 'html' | 'css' | 'javascript';
+                const currentValue = code[activeTab as 'html' | 'css' | 'js'];
+                return (
+                  <MonacoEditorComponent
+                    language={safeTab}
+                    value={currentValue}
+                    onChange={(value) => handleCodeChange(activeTab, value)}
+                    isFullscreen={false}
+                    theme="dark"
+                    placeholder={'输入' + tabConfig[activeTab].name + '代码...'}
+                  />
+                );
+              })()
+            )}
           </div>
         </div>
 
@@ -804,6 +950,7 @@ addLog('📋 组件代码加载完成，等待DOM初始化...', 'info');`
                 <li>gameAPI自动补全，快速编写游戏交互代码</li>
                 <li>支持AI工具注册，与游戏引擎深度集成</li>
                 <li>Font Awesome图标库已预载，可直接使用</li>
+                <li>点击测试按钮可快速加载预设的测试代码模板</li>
               </ul>
             </div>
           </div>

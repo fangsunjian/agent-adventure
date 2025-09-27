@@ -55,6 +55,15 @@ export class GameToolRegistry {
    * 根据故事内容动态注册内容相关工具
    */
   static registerContentBasedTools(activeStory: Story) {
+    console.log('🔧 DEBUG: registerContentBasedTools called');
+    console.log('🔧 DEBUG: activeStory:', {
+      hasStory: !!activeStory,
+      storyId: activeStory?.id,
+      storyName: activeStory?.name,
+      hasLibrary: !!activeStory?.library,
+      libraryLength: activeStory?.library?.length || 0
+    });
+
     const toolsRegistered: string[] = [];
     
     // 检测并注册地图相关工具
@@ -73,12 +82,42 @@ export class GameToolRegistry {
     }
     
     // 检测并注册HTML组件工具
-    const htmlComponents = activeStory.library.filter(card => 
+    console.log('🔍 DEBUG: Checking for HTML components in story library...');
+    console.log('🔍 DEBUG: Story library length:', activeStory.library?.length || 0);
+
+    if (!activeStory.library) {
+      console.log('❌ DEBUG: No library found in activeStory during tool registration');
+      return toolsRegistered;
+    }
+
+    console.log('🔍 DEBUG: Analyzing each card for HTML components:');
+    activeStory.library.forEach((card, index) => {
+      console.log(`  Registration Card ${index}:`, {
+        id: card.id,
+        name: card.name,
+        type: card.type,
+        hasHtmlData: !!card.htmlData,
+        hasJs: !!(card.htmlData?.js),
+        jsLength: card.htmlData?.js?.length || 0
+      });
+    });
+
+    const htmlComponents = activeStory.library.filter(card =>
       card.type === 'html' && card.htmlData && card.htmlData.js
     );
-    
+
+    console.log(`🔍 DEBUG: Filtered HTML components count: ${htmlComponents.length}`);
+
     if (htmlComponents.length > 0) {
       console.log(`📟 Found ${htmlComponents.length} HTML components in story, registering HTML component tools`);
+      htmlComponents.forEach((component, index) => {
+        console.log(`  HTML Component ${index}:`, {
+          id: component.id,
+          name: component.name,
+          hasToolDefinitions: !!(component.htmlData?.toolDefinitions),
+          toolDefinitionsCount: component.htmlData?.toolDefinitions?.length || 0
+        });
+      });
       this.registerHtmlComponentTools(htmlComponents);
       toolsRegistered.push('html_component_tools');
     } else {
@@ -314,12 +353,59 @@ export class GameToolRegistry {
       handler: async (args: {}, context) => {
         try {
           console.log('📟 Getting available HTML components');
+          console.log('🔍 DEBUG: activeStory object:', {
+            hasActiveStory: !!context.activeStory,
+            hasLibrary: !!context.activeStory?.library,
+            libraryLength: context.activeStory?.library?.length || 0
+          });
+
           context.logCommunication('tool_get_available_html_components', args);
-          
-          const htmlComponents = context.activeStory.library.filter(card => 
-            card.type === 'html' && card.htmlData
-          );
-          
+
+          if (!context.activeStory) {
+            console.log('❌ DEBUG: No activeStory found');
+            return {
+              success: false,
+              error: 'No active story found',
+              components: [],
+              totalComponents: 0
+            };
+          }
+
+          if (!context.activeStory.library) {
+            console.log('❌ DEBUG: No library found in activeStory');
+            return {
+              success: false,
+              error: 'No library found in active story',
+              components: [],
+              totalComponents: 0
+            };
+          }
+
+          console.log('🔍 DEBUG: Library cards details:');
+          context.activeStory.library.forEach((card, index) => {
+            console.log(`  Card ${index}:`, {
+              id: card.id,
+              name: card.name,
+              type: card.type,
+              hasHtmlData: !!card.htmlData,
+              htmlDataKeys: card.htmlData ? Object.keys(card.htmlData) : null,
+              hasJs: !!(card.htmlData?.js),
+              jsLength: card.htmlData?.js?.length || 0
+            });
+          });
+
+          const allCards = context.activeStory.library;
+          console.log('🔍 DEBUG: All cards count:', allCards.length);
+
+          const htmlTypeCards = allCards.filter(card => card.type === 'html');
+          console.log('🔍 DEBUG: HTML type cards count:', htmlTypeCards.length);
+
+          const htmlDataCards = htmlTypeCards.filter(card => card.htmlData);
+          console.log('🔍 DEBUG: HTML cards with htmlData count:', htmlDataCards.length);
+
+          const htmlComponents = htmlDataCards.filter(card => card.htmlData.js);
+          console.log('🔍 DEBUG: HTML cards with JS code count:', htmlComponents.length);
+
           const componentList = htmlComponents.map(component => ({
             id: component.id,
             name: component.name,
@@ -327,16 +413,23 @@ export class GameToolRegistry {
             hasTools: !!(component.htmlData?.toolDefinitions?.length),
             toolCount: component.htmlData?.toolDefinitions?.length || 0
           }));
-          
-          return {
+
+          console.log('🔍 DEBUG: Final component list:', componentList);
+          console.log('🔍 DEBUG: Component list JSON:', JSON.stringify(componentList, null, 2));
+
+          const result = {
             success: true,
             components: componentList,
             totalComponents: componentList.length
           };
+
+          console.log('🔍 DEBUG: Final result object:', JSON.stringify(result, null, 2));
+
+          return result;
         } catch (error) {
           console.error('❌ Error in get_available_html_components tool:', error);
           context.logCommunication('tool_error_get_available_html_components', error);
-          
+
           return {
             success: false,
             error: error.message,
@@ -416,6 +509,15 @@ export class GameToolRegistry {
       priority: 9
     }, 'html_component');
 
+    // 解析JavaScript代码中的工具定义
+    htmlComponents.forEach(component => {
+      if (!component.htmlData?.toolDefinitions && component.htmlData?.js) {
+        // 从JavaScript代码中解析工具定义
+        component.htmlData.toolDefinitions = this.parseToolDefinitionsFromJS(component.htmlData.js);
+        console.log(`🔧 DEBUG: Parsed ${component.htmlData.toolDefinitions?.length || 0} tools from JS for component ${component.name}`);
+      }
+    });
+
     // 动态注册每个HTML组件特有的工具
     htmlComponents.forEach(component => {
       if (component.htmlData?.toolDefinitions) {
@@ -492,6 +594,140 @@ export class GameToolRegistry {
         }
       }
     });
+  }
+
+  /**
+   * 从JavaScript代码中解析工具定义
+   */
+  private static parseToolDefinitionsFromJS(jsCode: string): any[] {
+    const toolDefinitions: any[] = [];
+
+    try {
+      // 查找所有工具定义模式：const xxxTool = { name: '...', description: '...', ... };
+      const toolPatterns = [
+        /const\s+(\w+Tool)\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g,
+        /\{\s*name:\s*['"`]([^'"`]+)['"`][^}]*description:\s*['"`]([^'"`]+)['"`][^}]*\}/g
+      ];
+
+      // 尝试第一种模式：完整的工具对象定义
+      let match;
+      const toolObjectPattern = /const\s+(\w+Tool)\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
+
+      while ((match = toolObjectPattern.exec(jsCode)) !== null) {
+        const toolVarName = match[1];
+        const toolObjectContent = match[2];
+
+        // 解析工具对象内容
+        const nameMatch = toolObjectContent.match(/name:\s*['"`]([^'"`]+)['"`]/);
+        const descMatch = toolObjectContent.match(/description:\s*['"`]([^'"`]+)['"`]/);
+
+        if (nameMatch && descMatch) {
+          const toolName = nameMatch[1];
+          const description = descMatch[1];
+
+          // 尝试解析参数定义
+          let parameters = {
+            type: 'object',
+            properties: {},
+            required: []
+          };
+
+          // 查找参数定义
+          const paramsMatch = toolObjectContent.match(/parameters:\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/);
+          if (paramsMatch) {
+            try {
+              // 尝试解析参数对象（简单解析）
+              const paramsContent = paramsMatch[1];
+              const propertiesMatch = paramsContent.match(/properties:\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/);
+              const requiredMatch = paramsContent.match(/required:\s*\[([^\]]*)\]/);
+
+              if (propertiesMatch) {
+                // 这里可以进一步解析属性定义，但为了简化暂时使用默认值
+                parameters.properties = {};
+              }
+
+              if (requiredMatch) {
+                const requiredFields = requiredMatch[1]
+                  .split(',')
+                  .map(field => field.trim().replace(/['"`]/g, ''))
+                  .filter(field => field.length > 0);
+                parameters.required = requiredFields;
+              }
+            } catch (e) {
+              console.log(`🔧 DEBUG: Could not parse parameters for tool ${toolName}, using defaults`);
+            }
+          }
+
+          toolDefinitions.push({
+            name: toolName,
+            description: description,
+            parameters: parameters
+          });
+
+          console.log(`🔧 DEBUG: Parsed tool from JS: ${toolName} - ${description}`);
+        }
+      }
+
+      // 如果第一种模式没找到工具，尝试查找已知的工具名称
+      if (toolDefinitions.length === 0) {
+        const knownTools = [
+          {
+            pattern: /view_inventory/,
+            name: 'view_inventory',
+            description: '查看玩家背包中的所有物品',
+            parameters: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            pattern: /add_item/,
+            name: 'add_item',
+            description: '向玩家背包添加物品',
+            parameters: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: '物品名称' },
+                description: { type: 'string', description: '物品描述' },
+                quantity: { type: 'number', description: '物品数量', minimum: 1 }
+              },
+              required: ['name']
+            }
+          },
+          {
+            pattern: /remove_item/,
+            name: 'remove_item',
+            description: '从玩家背包移除物品',
+            parameters: {
+              type: 'object',
+              properties: {
+                itemName: { type: 'string', description: '要移除的物品名称' },
+                quantity: { type: 'number', description: '要移除的数量', minimum: 1 }
+              },
+              required: ['itemName']
+            }
+          }
+        ];
+
+        knownTools.forEach(knownTool => {
+          if (knownTool.pattern.test(jsCode)) {
+            toolDefinitions.push({
+              name: knownTool.name,
+              description: knownTool.description,
+              parameters: knownTool.parameters
+            });
+            console.log(`🔧 DEBUG: Found known tool in JS: ${knownTool.name}`);
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('🔧 DEBUG: Error parsing tool definitions from JS:', error);
+    }
+
+    console.log(`🔧 DEBUG: Total tools parsed from JS: ${toolDefinitions.length}`);
+    return toolDefinitions;
   }
 
   private static registerCoreTools() {

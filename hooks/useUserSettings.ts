@@ -34,31 +34,31 @@ export function useUserSettings(): UseUserSettingsReturn {
     setSettings(localSettings);
   }, [localSettings]);
 
-  // 用户登录时从云端加载设置
-  useEffect(() => {
-    if (user && !settingsLoadedRef.current) {
-      loadFromCloud();
-      settingsLoadedRef.current = true;
-    }
-  }, [user]);
+  // 用户登录时从云端加载设置 - 临时禁用云端同步
+  // useEffect(() => {
+  //   if (user && !settingsLoadedRef.current) {
+  //     loadFromCloud();
+  //     settingsLoadedRef.current = true;
+  //   }
+  // }, [user]);
 
-  // 监听云端设置变化
-  useEffect(() => {
-    if (!user) return;
+  // 监听云端设置变化 - 临时禁用云端同步
+  // useEffect(() => {
+  //   if (!user) return;
 
-    const unsubscribe = UserSettingsService.subscribeToUserSettings(
-      user.id,
-      (cloudSettings) => {
-        if (cloudSettings) {
-          // 云端设置有更新，同步到本地
-          setLocalSettings(cloudSettings);
-          setSettings(cloudSettings);
-        }
-      }
-    );
+  //   const unsubscribe = UserSettingsService.subscribeToUserSettings(
+  //     user.id,
+  //     (cloudSettings) => {
+  //       if (cloudSettings) {
+  //         // 云端设置有更新，同步到本地
+  //         setLocalSettings(cloudSettings);
+  //         setSettings(cloudSettings);
+  //       }
+  //     }
+  //   );
 
-    return unsubscribe;
-  }, [user, setLocalSettings]);
+  //   return unsubscribe;
+  // }, [user, setLocalSettings]);
 
   // 用户登出时重置
   useEffect(() => {
@@ -69,87 +69,33 @@ export function useUserSettings(): UseUserSettingsReturn {
   }, [user]);
 
   /**
-   * 保存设置到云端
+   * 保存设置到云端 - 临时禁用
    */
   const saveToCloud = useCallback(async (): Promise<boolean> => {
-    if (!user) {
-      setError('用户未登录');
-      return false;
-    }
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      const success = await UserSettingsService.saveUserSettings(user.id, settings);
-      if (!success) {
-        setError('保存设置失败');
-      }
-      return success;
-    } catch (error) {
-      console.error('Error saving settings to cloud:', error);
-      setError('保存设置时出错');
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
+    // 模拟成功保存
+    return true;
   }, [user, settings]);
 
   /**
-   * 从云端加载设置
+   * 从云端加载设置 - 临时禁用
    */
   const loadFromCloud = useCallback(async (): Promise<boolean> => {
-    if (!user) {
-      setError('用户未登录');
-      return false;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const cloudSettings = await UserSettingsService.getUserSettings(user.id);
-      
-      if (cloudSettings) {
-        // 云端有设置，使用云端设置
-        setLocalSettings(cloudSettings);
-        setSettings(cloudSettings);
-        return true;
-      } else {
-        // 云端没有设置，将本地设置上传到云端
-        const success = await UserSettingsService.saveUserSettings(user.id, settings);
-        if (!success) {
-          setError('初始化云端设置失败');
-        }
-        return success;
-      }
-    } catch (error) {
-      console.error('Error loading settings from cloud:', error);
-      setError('加载设置时出错');
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+    // 模拟成功加载
+    return true;
   }, [user, settings, setLocalSettings]);
 
   /**
-   * 设置增强函数 - 自动保存到云端（如果用户已登录）
+   * 设置增强函数 - 仅本地存储（临时禁用云端）
    */
   const enhancedSetSettings = useCallback((newSettings: GameSettings | ((prev: GameSettings) => GameSettings)) => {
     const settingsToApply = newSettings instanceof Function ? newSettings(settings) : newSettings;
-    
-    // 先更新本地存储
+
+    // 只更新本地存储
     setLocalSettings(settingsToApply);
     setSettings(settingsToApply);
 
-    // 如果用户已登录，异步保存到云端（不阻塞UI）
-    if (user) {
-      UserSettingsService.saveUserSettings(user.id, settingsToApply).catch(error => {
-        console.error('Background save failed:', error);
-        // 后台保存失败，不显示错误给用户，保持流畅体验
-      });
-    }
-  }, [user, settings, setLocalSettings]);
+    // 云端保存已禁用
+  }, [settings, setLocalSettings]);
 
   /**
    * 重置为默认设置

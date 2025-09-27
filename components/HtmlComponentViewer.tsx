@@ -47,8 +47,50 @@ const HtmlComponentViewer: React.FC<HtmlComponentViewerProps> = ({
 
         window.addEventListener('message', (event) => {
           const { action, payload, callId } = event.data;
-          console.log('📨 iframe收到响应消息:', { action, callId, hasPayload: !!payload });
-          
+          console.log('📨 iframe收到消息:', { action, callId, hasPayload: !!payload });
+
+          // 处理工具调用请求
+          if (action === 'CALL_TOOL') {
+            console.log('🛠️ 收到工具调用请求:', payload);
+
+            const { toolName, args } = payload;
+            const functionName = 'tool_' + toolName;
+
+            try {
+              // 查找对应的工具函数
+              if (typeof window[functionName] === 'function') {
+                console.log('✅ 找到工具函数:', functionName);
+
+                // 执行工具函数
+                const result = window[functionName](args);
+
+                // 发送响应
+                window.parent.postMessage({
+                  action: 'TOOL_RESPONSE',
+                  payload: result,
+                  callId
+                }, '*');
+
+                console.log('✅ 工具调用成功，已发送响应');
+              } else {
+                console.error('❌ 工具函数不存在:', functionName);
+                window.parent.postMessage({
+                  action: 'TOOL_ERROR',
+                  payload: { error: \`Tool function '\${functionName}' not found\` },
+                  callId
+                }, '*');
+              }
+            } catch (error) {
+              console.error('❌ 工具调用失败:', error);
+              window.parent.postMessage({
+                action: 'TOOL_ERROR',
+                payload: { error: error.message || 'Tool execution failed' },
+                callId
+              }, '*');
+            }
+            return;
+          }
+
           if (pendingCalls.has(callId)) {
             console.log('✅ 找到对应的pending call, callId:', callId);
             const { resolve, reject } = pendingCalls.get(callId);
@@ -63,7 +105,7 @@ const HtmlComponentViewer: React.FC<HtmlComponentViewerProps> = ({
           } else {
             console.log('⚠️ 未找到对应的pending call, callId:', callId, 'pending calls:', Array.from(pendingCalls.keys()));
           }
-          
+
           // 处理特殊的log消息，这些消息不期待响应
           if (callId && typeof callId === 'string' && callId.startsWith('log_')) {
             // log消息不需要处理响应，直接忽略
@@ -100,6 +142,24 @@ const HtmlComponentViewer: React.FC<HtmlComponentViewerProps> = ({
                 action: 'LOG_MESSAGE',
                 payload: { message, type }
               }, '*');
+            }
+          },
+
+          component: {
+            registerInitializer: (initializerConfig) => {
+              let payload = initializerConfig;
+              if (typeof initializerConfig === 'function') {
+                payload = initializerConfig();
+              }
+
+              if (!payload || typeof payload !== 'object') {
+                throw new Error('Initializer config must be an object or return an object');
+              }
+
+              return postMessageToHost('REGISTER_INITIALIZER', {
+                componentId: '${component.id}',
+                initializer: payload
+              });
             }
           },
 
