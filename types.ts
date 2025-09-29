@@ -221,6 +221,7 @@ export interface Playthrough {
   id?: string;
   userId: string;
   storyId: string;
+  isPreview?: boolean;
   history: HistoryItem[];
   summaries: string[];
   grandSummaries: GrandSummaryItem[];
@@ -240,7 +241,8 @@ export interface PlaythroughFromDB {
     id: string;
     user_id: string;
     story_id: string;
-    game_state: Omit<Playthrough, 'id' | 'userId' | 'storyId'>;
+    game_state: Omit<Playthrough, 'id' | 'userId' | 'storyId' | 'isPreview'>;
+    is_preview?: boolean | null;
 }
 
 // --- Dialogue System Types ---

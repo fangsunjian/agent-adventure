@@ -22,19 +22,16 @@ const HtmlPreview: React.FC<HtmlPreviewProps> = ({
   const [srcDoc, setSrcDoc] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
-  if (!card.htmlData?.html) {
-    return (
-      <div className={`flex items-center justify-center h-full text-gray-500 dark:text-zinc-400 ${className}`}>
-        <div className="text-center">
-          <p className="text-sm">HTML组件预览</p>
-          <p className="text-xs mt-1">请编写HTML内容</p>
-        </div>
-      </div>
-    );
-  }
+  const hasHtmlContent = Boolean(card.htmlData?.html);
 
   // 生成HTML组件的完整内容
   useEffect(() => {
+    if (!hasHtmlContent) {
+      setSrcDoc('');
+      setIsLoading(false);
+      return;
+    }
+
     if (card.htmlData) {
       const { html, css, js } = card.htmlData;
 
@@ -134,12 +131,23 @@ const HtmlPreview: React.FC<HtmlPreviewProps> = ({
       setSrcDoc(previewContent);
       setIsLoading(true);
     }
-  }, [card.htmlData, card.name]);
+  }, [hasHtmlContent, card.htmlData, card.name]);
 
   // 处理iframe加载完成
   const handleIframeLoad = () => {
     setIsLoading(false);
   };
+
+  if (!hasHtmlContent) {
+    return (
+      <div className={`flex items-center justify-center h-full text-gray-500 dark:text-zinc-400 ${className}`}>
+        <div className="text-center">
+          <p className="text-sm">HTML组件预览</p>
+          <p className="text-xs mt-1">请编写HTML内容</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`h-full flex flex-col ${className}`}>

@@ -24,6 +24,9 @@ interface PreviewPanelProps {
   onToggleMaximize?: () => void;
   onCardUpdate?: (updatedCard: LibraryCard) => void;
   className?: string;
+  customTitle?: React.ReactNode;
+  customSubtitle?: React.ReactNode;
+  customContent?: React.ReactNode;
 }
 
 // 地图预览组件包装器
@@ -103,7 +106,10 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   onToggleVisible,
   onToggleMaximize,
   onCardUpdate,
-  className = ''
+  className = '',
+  customTitle,
+  customSubtitle,
+  customContent,
 }) => {
   const t = translations[language];
 
@@ -111,12 +117,20 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     return null;
   }
 
+  const titleContent = customTitle ?? t.previewTitle ?? '预览';
+  const emptyTitle = customSubtitle ?? (
+    <div className="text-center">
+      <p className="text-sm">{t.previewEmptyTitle ?? '选择资料卡查看预览'}</p>
+      <p className="text-xs mt-1 text-gray-400">{t.previewEmptySubtitle ?? '支持角色、地图、HTML组件等类型'}</p>
+    </div>
+  );
+
   return (
     <div className={`bg-white dark:bg-zinc-900 border-l border-gray-200 dark:border-zinc-800 flex flex-col ${className}`}>
       {/* 预览面板标题栏 */}
       <header className="p-4 border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
-          预览
+          {titleContent}
         </h3>
 
         <div className="flex items-center gap-1">
@@ -141,7 +155,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
       {/* 预览内容区域 */}
       <div className="flex-1 p-4 overflow-hidden">
-        {card ? (
+        {customContent ? (
+          <div className="h-full relative overflow-hidden">
+            {customContent}
+          </div>
+        ) : card ? (
           <PreviewRenderer
             card={card}
             language={language}
@@ -150,10 +168,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500 dark:text-zinc-400">
-            <div className="text-center">
-              <p className="text-sm">选择资料卡查看预览</p>
-              <p className="text-xs mt-1 text-gray-400">支持角色、地图、HTML组件等类型</p>
-            </div>
+            {emptyTitle}
           </div>
         )}
       </div>

@@ -22,7 +22,7 @@ const ProfilePage: React.FC = () => {
     const { settings, setSettings } = useUserSettings();
     const navigate = useNavigate();
     const { data: allStories = [], isLoading: storiesLoading } = useStories(user?.id);
-    const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(user?.id);
+    const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(user?.id, { isPreview: false });
     const deleteStoryMutation = useDeleteStory();
     const deletePlaythroughMutation = useDeletePlaythrough();
 

@@ -1,4 +1,3 @@
-import { jsonrepair } from 'jsonrepair';
 import type { GameSettings, HistoryItem, Memories, Story } from '../types';
 
 export type SceneType = 'exploration' | 'dialogue' | 'action' | 'summary' | 'special_event';
@@ -139,9 +138,9 @@ export class GameToolRegistry {
    * 注册地图相关工具
    */
   private static registerMapTools() {
-    // get_available_maps工具
+    // get_available_maps_and_locations工具
     this.register({
-      name: 'get_available_maps',
+      name: 'get_available_maps_and_locations',
       description: '获取当前故事中可用的地图列表',
       parameters: {
         type: 'object',
@@ -151,7 +150,7 @@ export class GameToolRegistry {
       handler: async (args: {}, context) => {
         try {
           console.log('🗺️ Getting available maps');
-          context.logCommunication('tool_get_available_maps', args);
+          context.logCommunication('tool_get_available_maps_and_locations', args);
           
           const maps = context.activeStory.library.filter(card => 
             card.type === 'map' && card.mapImageUrl && card.mapLocations
@@ -175,8 +174,8 @@ export class GameToolRegistry {
             totalMaps: mapList.length
           };
         } catch (error) {
-          console.error('❌ Error in get_available_maps tool:', error);
-          context.logCommunication('tool_error_get_available_maps', error);
+          console.error('❌ Error in get_available_maps_and_locations tool:', error);
+          context.logCommunication('tool_error_get_available_maps_and_locations', error);
           
           return {
             success: false,
@@ -261,11 +260,11 @@ export class GameToolRegistry {
         properties: {
           mapId: {
             type: 'string',
-            description: '地图的ID'
+            description: '通过"get_available_maps_and_locations"获取的maps:id'
           },
           locationId: {
             type: 'string',
-            description: '位置的ID'
+            description: '通过"get_available_maps_and_locations"获取的locations:id'
           },
           reason: {
             type: 'string',
@@ -328,7 +327,7 @@ export class GameToolRegistry {
    * 移除地图相关工具
    */
   private static unregisterMapTools() {
-    const mapTools = ['get_available_maps', 'get_location_details', 'set_player_location'];
+    const mapTools = ['get_available_maps_and_locations', 'get_location_details', 'set_player_location'];
     mapTools.forEach(toolName => {
       if (this.tools.has(toolName)) {
         this.tools.delete(toolName);

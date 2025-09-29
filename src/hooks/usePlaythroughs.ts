@@ -1,12 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../services/supabaseClient'
-import type { Playthrough, PlaythroughFromDB } from '../../types'
+import type { Playthrough } from '../../types'
 
 // Data transformation helpers
 const playthroughFromDb = (dbPlaythrough: any): Playthrough & { stories: any } => ({
   id: dbPlaythrough.id,
   userId: dbPlaythrough.user_id,
   storyId: dbPlaythrough.story_id,
+  isPreview: dbPlaythrough.is_preview ?? false,
   history: dbPlaythrough.game_state?.history || [],
   summaries: dbPlaythrough.game_state?.summaries || [],
   grandSummaries: dbPlaythrough.game_state?.grandSummaries || [],
@@ -32,14 +33,21 @@ export const playthroughKeys = {
   detail: (id: string) => [...playthroughKeys.details(), id] as const,
 }
 
+interface PlaythroughListFilters {
+  storyId?: string | null
+  isPreview?: boolean
+}
+
 // Fetch playthroughs for a user
-export function usePlaythroughs(userId?: string) {
+export function usePlaythroughs(userId?: string, filters: PlaythroughListFilters = {}) {
+  const { storyId, isPreview } = filters
+
   return useQuery({
-    queryKey: playthroughKeys.list({ userId }),
+    queryKey: playthroughKeys.list({ userId, storyId: storyId ?? undefined, isPreview }),
     queryFn: async () => {
       if (!userId) return []
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('playthroughs')
         .select(`
           *,
@@ -52,10 +60,24 @@ export function usePlaythroughs(userId?: string) {
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
+      if (storyId) {
+        query = query.eq('story_id', storyId)
+      }
+
+      if (typeof isPreview === 'boolean') {
+        if (isPreview) {
+          query = query.eq('is_preview', true)
+        } else {
+          query = query.or('is_preview.eq.false,is_preview.is.null')
+        }
+      }
+
+      const { data, error } = await query
+
       if (error) throw error
       return data?.map(playthroughFromDb) || []
     },
-    enabled: !!userId,
+    enabled: Boolean(userId && (storyId === undefined || storyId === null || storyId)),
   })
 }
 
@@ -87,15 +109,15 @@ export function useSavePlaythrough() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (playthrough: Partial<Playthrough>) => {
+    mutationFn: async (playthrough: Record<string, any>) => {
       const { data, error } = await supabase
         .from('playthroughs')
         .upsert({
           ...playthrough,
           // 不添加 updated_at 字段，因为数据库表中没有这个字段
-          // 数据库只有: id, created_at, user_id, story_id, game_state
+          // 数据库只有: id, created_at, user_id, story_id, game_state, is_preview
         }, {
-          onConflict: 'user_id,story_id' // 指定冲突处理字段，对应数据库的唯一约束
+          onConflict: 'user_id,story_id,is_preview' // 指定冲突处理字段，对应数据库的唯一约束
         })
         .select()
         .single()

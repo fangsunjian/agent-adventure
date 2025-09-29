@@ -12,6 +12,7 @@ import { useUserSettings } from '../../hooks/useUserSettings';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSaveStory, useStory } from '../hooks/useStories';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import GamePage from './GamePage';
 
 // No props needed - everything handled via hooks
 
@@ -82,10 +83,11 @@ const CreatePage: React.FC = () => {
     const [showAddCardModal, setShowAddCardModal] = useState(false);
 
     // Preview panel states
-    const [showPreview, setShowPreview] = useState(false);
+    const [showPreview, setShowPreview] = useState(true);
     const [previewMaximized, setPreviewMaximized] = useState(false);
     const [desktopContentWidth, setDesktopContentWidth] = useState(DEFAULT_DETAIL_PANEL_WIDTH);
     const [isResizingDetailPanel, setIsResizingDetailPanel] = useState(false);
+    const previousSidebarSelection = useRef<SidebarSelection>('basic');
 
 
     // Desktop card editing states - replaces UniversalInlineEditor
@@ -215,6 +217,21 @@ const CreatePage: React.FC = () => {
         };
     }, [isResizingDetailPanel, showPreview, previewMaximized, getClampedDetailWidth]);
 
+    const getCurrentPreviewCard = (): LibraryCard | null => {
+        if (typeof sidebarSelection === 'object') {
+            // 优先返回正在编辑的卡片数据
+            return desktopEditingCard || story.library.find(c => c.id === sidebarSelection.cardId) || null;
+        }
+        return null;
+    };
+
+    const currentCardSupportsPreview = (): boolean => {
+        const card = getCurrentPreviewCard();
+        if (!card) return false;
+        // Currently supporting map, html, and character types
+        return card.type === 'map' || card.type === 'html' || card.type === 'character';
+    };
+
     const shouldShowResizablePreview = showPreview && !previewMaximized;
     const detailPanelWidth = shouldShowResizablePreview ? Math.max(0, Math.round(desktopContentWidth)) : 0;
     const detailPanelStyle = shouldShowResizablePreview
@@ -229,6 +246,19 @@ const CreatePage: React.FC = () => {
     const previewPanelClassName = previewMaximized
         ? 'fixed inset-0 z-50'
         : 'flex-1 min-w-[360px] max-w-[70vw] border-r border-gray-200 dark:border-zinc-800';
+
+    const isGamePreviewActive = isDesktop && sidebarSelection === 'basic';
+    const currentPreviewCard = isGamePreviewActive ? null : getCurrentPreviewCard();
+    const previewPanelTitle = isGamePreviewActive ? t.gamePreviewTitle : undefined;
+    const previewCustomContent = isGamePreviewActive ? (
+        <GamePage
+            key={editId ?? 'new-preview'}
+            storyIdOverride={editId}
+            mode="preview"
+            isEmbedded
+            className="h-full"
+        />
+    ) : undefined;
 
     const handleAttemptClose = () => {
         if (isDirty) {
@@ -501,30 +531,19 @@ const CreatePage: React.FC = () => {
     const handleResetZoom = () => {
         setCropData({ x: 0, y: 0, scale: 1 });
     };
-
-    // Get current card for preview
-    const getCurrentPreviewCard = (): LibraryCard | null => {
-        if (typeof sidebarSelection === 'object') {
-            // 优先返回正在编辑的卡片数据
-            return desktopEditingCard || story.library.find(c => c.id === sidebarSelection.cardId) || null;
-        }
-        return null;
-    };
-
-    // Check if current card supports preview
-    const currentCardSupportsPreview = (): boolean => {
-        const card = getCurrentPreviewCard();
-        if (!card) return false;
-        // Currently supporting map, html, and character types
-        return card.type === 'map' || card.type === 'html' || card.type === 'character';
-    };
-
     // Auto-show preview when editing supported card types
     useEffect(() => {
         if (isDesktop && currentCardSupportsPreview() && !showPreview) {
             setShowPreview(true);
         }
-    }, [sidebarSelection, isDesktop]);
+    }, [sidebarSelection, isDesktop, showPreview]);
+
+    useEffect(() => {
+        if (isDesktop && sidebarSelection === 'basic' && previousSidebarSelection.current !== 'basic') {
+            setShowPreview(true);
+        }
+        previousSidebarSelection.current = sidebarSelection;
+    }, [isDesktop, sidebarSelection]);
 
 
     // Add Card Modal Component
@@ -1258,13 +1277,15 @@ const CreatePage: React.FC = () => {
                         {showPreview && (
                             <>
                                 <PreviewPanel
-                                    card={getCurrentPreviewCard()}
+                                    card={currentPreviewCard}
                                     language={settings.language}
                                     isVisible={showPreview}
                                     isMaximized={previewMaximized}
                                     onToggleVisible={() => setShowPreview(false)}
                                     onToggleMaximize={() => setPreviewMaximized(!previewMaximized)}
                                     className={previewPanelClassName}
+                                    customTitle={previewPanelTitle}
+                                    customContent={previewCustomContent}
                                 />
                                 {!previewMaximized && (
                                     <div

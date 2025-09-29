@@ -1,5 +1,5 @@
 import { PROMPTS } from '../prompts/index';
-import type { GameSettings, HistoryItem, Memories, SceneFragment, Story, LibraryCard } from '../types';
+import type { GameSettings, HistoryItem, LibraryCard, Memories, SceneFragment, Story } from '../types';
 import { GameToolRegistry, type GameToolContext, type SceneType } from './GameToolRegistry';
 import { SceneAnalyzer } from './SceneAnalyzer';
 
@@ -1509,7 +1509,7 @@ export class GameEngine {
     } else {
       console.log('🎯 Using conservative tool set');
       // 即使在保守模式下，也要包含内容相关的工具
-      const contentBasedTools = ['get_available_html_components', 'get_available_maps'];
+      const contentBasedTools = ['get_available_html_components', 'get_available_maps_and_locations'];
       const availableContentTools = contentBasedTools.filter(tool =>
         GameToolRegistry.getTools().some(registeredTool => registeredTool.name === tool)
       );
@@ -1695,7 +1695,7 @@ export class GameEngine {
           if (result.summaryData) summaryData = result.summaryData;
           if (result.systemMessage) systemMessage = result.systemMessage;
           if (result.playerLocation) playerLocationData = result.playerLocation;
-          if (result.maps) mapData = result; // 收集地图数据（get_available_maps返回的是result.maps）
+          if (result.maps) mapData = result; // 收集地图数据（get_available_maps_and_locations返回的是result.maps）
           
           // 处理对话工具的特殊情况
           if (toolCall.function?.name === 'show_dialogue' && result.dialogueData && toolHandler?.show_dialogue) {
@@ -1723,7 +1723,7 @@ export class GameEngine {
     }
     
     // 检查是否只有地图工具（没有scene生成工具）
-    const mapToolNames = ['get_available_maps', 'get_location_details', 'set_player_location'];
+    const mapToolNames = ['get_available_maps_and_locations', 'get_location_details', 'set_player_location'];
     const hasOnlyMapTools = processedToolCalls.length > 0 && 
       processedToolCalls.every(tc => mapToolNames.includes(tc.function?.name));
     

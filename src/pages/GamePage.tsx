@@ -49,17 +49,41 @@ const parseContent = (text: string): string => {
     return text.replace(/\[\[.*?:]/g, '').replace(/\]\]/g, '');
 };
 
-export default function GamePage(): React.ReactNode {
+interface GamePageProps {
+  storyIdOverride?: string | null;
+  mode?: 'runtime' | 'preview';
+  isEmbedded?: boolean;
+  onExit?: () => void;
+  className?: string;
+}
+
+export default function GamePage({
+  storyIdOverride = null,
+  mode = 'runtime',
+  isEmbedded = false,
+  onExit,
+  className = '',
+}: GamePageProps = {}): React.ReactNode {
   // Router hooks
-  const { storyId } = useParams<{ storyId: string }>();
+  const routeParams = useParams<{ storyId: string }>();
+  const resolvedStoryId = storyIdOverride ?? routeParams?.storyId ?? null;
+  const isPreviewMode = mode === 'preview';
   const navigate = useNavigate();
 
   // Auth hook
   const { user } = useAuth();
 
   // Data hooks
-  const { data: activeStory, isLoading: storyLoading, error: storyError } = useStory(storyId || null);
-  const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(user?.id);
+  const { data: activeStory, isLoading: storyLoading, error: storyError } = useStory(resolvedStoryId);
+  const shouldPersistPlaythrough = !isPreviewMode;
+
+  const { data: playthroughs = [], isLoading: playthroughsLoading } = usePlaythroughs(
+    shouldPersistPlaythrough ? user?.id : undefined,
+    shouldPersistPlaythrough ? {
+      storyId: resolvedStoryId ?? undefined,
+      isPreview: false,
+    } : { isPreview: true }
+  );
   const savePlaythroughMutation = useSavePlaythrough();
 
   // Mock settings - TODO: Implement proper settings management
@@ -80,23 +104,45 @@ export default function GamePage(): React.ReactNode {
   // Get userId from auth context
   const userId = user?.id || 'anonymous';
 
+  const containerBaseClass = isEmbedded
+    ? 'relative flex flex-col bg-cover bg-center bg-zinc-950'
+    : 'fixed inset-0 flex flex-col bg-cover bg-center bg-zinc-950';
+  const containerClassName = `${containerBaseClass} ${className}`.trim();
+
   // Exit handler
-  const onExit = useCallback(() => {
+  const handleExit = useCallback(() => {
+    if (onExit) {
+      onExit();
+      return;
+    }
     navigate('/');
-  }, [navigate]);
+  }, [onExit, navigate]);
 
   // Find existing playthrough for this story
-  const existingPlaythrough = playthroughs.find(p => p.storyId === storyId && p.userId === userId);
+  const existingPlaythrough = shouldPersistPlaythrough ? playthroughs.find(p => {
+    if (!resolvedStoryId) return false;
+    if (p.storyId !== resolvedStoryId) return false;
+    if (p.userId !== userId) return false;
+    const previewFlag = Boolean(p.isPreview);
+    return previewFlag === false;
+  }) : undefined;
 
   // Save playthrough handler
   const onSavePlaythrough = useCallback(async (playthrough: Playthrough) => {
     try {
+      if (!shouldPersistPlaythrough) {
+        return;
+      }
+      if (!resolvedStoryId) {
+        return;
+      }
+
       // Prepare data in the correct database format - ONLY fields that exist in the database
       const playthroughToSave: any = {
         // Include existing ID if updating, otherwise let database generate new UUID
         ...(existingPlaythrough?.id && { id: existingPlaythrough.id }),
         user_id: userId,
-        story_id: storyId,
+        story_id: resolvedStoryId,
         game_state: {
           // Store all game state in the jsonb field
           history: playthrough.history,
@@ -112,7 +158,8 @@ export default function GamePage(): React.ReactNode {
           playerLocation: playthrough.playerLocation,
           mapData: playthrough.mapData,
           hasUnviewedLocationChange: playthrough.hasUnviewedLocationChange,
-        }
+        },
+        is_preview: isPreviewMode,
       };
 
       // 数据结构现在与数据库匹配：id, user_id, story_id, game_state
@@ -121,7 +168,7 @@ export default function GamePage(): React.ReactNode {
       console.error('Failed to save playthrough:', error);
       // 不要重新抛出错误，避免影响UI
     }
-  }, [existingPlaythrough?.id, userId, storyId, savePlaythroughMutation]);
+  }, [shouldPersistPlaythrough, existingPlaythrough?.id, userId, resolvedStoryId, savePlaythroughMutation]);
 
   // Game state initialization - ALL HOOKS MUST BE BEFORE CONDITIONAL RETURNS
   const [gameState, setGameState] = useState<Omit<Playthrough, 'storyId'>>(() => {
@@ -240,6 +287,19 @@ export default function GamePage(): React.ReactNode {
   // --- End Resizable Panel Logic ---
 
   const t = translations[settings.language];
+
+  if (!resolvedStoryId) {
+    return (
+      <div className={`${containerClassName} bg-zinc-900`}>
+        <div className="flex-1 flex items-center justify-center px-6 py-8">
+          <div className="text-center text-gray-300 max-w-sm space-y-2">
+            <h2 className="text-lg font-semibold text-gray-100">{t.previewUnavailableTitle}</h2>
+            <p className="text-sm text-gray-400">{t.previewUnavailableMessage}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const currentModelResponse = gameState.history.length > 0 && gameState.history[gameState.history.length - 1].role === 'model' && !gameState.history[gameState.history.length-1].isError
     ? JSON.parse(gameState.history[gameState.history.length - 1].parts[0].text) as Scene
     : null;
@@ -552,7 +612,7 @@ export default function GamePage(): React.ReactNode {
 
   const handlePlaceholderCancel = useCallback(() => {
       setIsPlaceholderModalOpen(false);
-      // Don't call onExit, just close the modal and stay in the game
+      // Don't call handleExit, just close the modal and stay in the game
   }, []);
 
   const hydrateGameStateFromPlaythrough = useCallback((playthroughData: Playthrough) => {
@@ -619,21 +679,23 @@ export default function GamePage(): React.ReactNode {
   }, []);
 
   useEffect(() => {
-    if (existingPlaythrough) {
-      console.log('[GamePage] Hydrating game state from playthrough', {
-        storyId: existingPlaythrough.storyId,
-        historyLength: existingPlaythrough.history?.length || 0,
-        turn: existingPlaythrough.turn,
-        hasPlaceholders: existingPlaythrough.placeholderValues && Object.keys(existingPlaythrough.placeholderValues).length > 0,
-      });
-      hydrateGameStateFromPlaythrough(existingPlaythrough);
+    if (!shouldPersistPlaythrough || !existingPlaythrough) {
+      return;
     }
-  }, [existingPlaythrough, hydrateGameStateFromPlaythrough]);
+
+    console.log('[GamePage] Hydrating game state from playthrough', {
+      storyId: existingPlaythrough.storyId,
+      historyLength: existingPlaythrough.history?.length || 0,
+      turn: existingPlaythrough.turn,
+      hasPlaceholders: existingPlaythrough.placeholderValues && Object.keys(existingPlaythrough.placeholderValues).length > 0,
+    });
+    hydrateGameStateFromPlaythrough(existingPlaythrough);
+  }, [shouldPersistPlaythrough, existingPlaythrough, hydrateGameStateFromPlaythrough]);
 
   useEffect(() => {
     if (!activeStory) return;
 
-    if (playthroughsLoading) {
+    if (shouldPersistPlaythrough && playthroughsLoading) {
       console.log('[GamePage] Waiting for playthroughs to load before initializing story');
       return;
     }
@@ -641,7 +703,7 @@ export default function GamePage(): React.ReactNode {
     GameEngine.applyHtmlComponentInitializers(activeStory);
 
     // If continuing an existing game with saved placeholder values
-    if (existingPlaythrough && gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0) {
+    if (shouldPersistPlaythrough && existingPlaythrough && gameState.placeholderValues && Object.keys(gameState.placeholderValues).length > 0) {
       // Apply saved placeholder values and set processed story
       const replacedStory = applyPlaceholdersToStory(activeStory, gameState.placeholderValues);
       setProcessedStory(replacedStory);
@@ -674,14 +736,14 @@ export default function GamePage(): React.ReactNode {
       if (!hasSavedPlaceholders) {
         setLastPlaceholderValues({});
         // Only start new session if no existing playthrough
-        if (!existingPlaythrough) {
+        if (!shouldPersistPlaythrough || !existingPlaythrough) {
           console.log('[GamePage] Starting new session (no existing playthrough detected)');
           startNewSession(activeStory);
         }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStory, existingPlaythrough, playthroughsLoading]);
+  }, [shouldPersistPlaythrough, activeStory, existingPlaythrough, playthroughsLoading]);
   
   // 保存游戏进度 - 只在重要变化时触发，避免无限循环
   const lastSaveRef = useRef<{ turn: number, historyLength: number, gameStatus: string }>({
@@ -692,7 +754,11 @@ export default function GamePage(): React.ReactNode {
 
   useEffect(() => {
     // 只在游戏状态真正有意义的变化时触发保存
-    const shouldSave = activeStory && (
+    if (!shouldPersistPlaythrough || !activeStory) {
+      return;
+    }
+
+    const shouldSave = (
       gameState.turn !== lastSaveRef.current.turn ||
       gameState.history.length !== lastSaveRef.current.historyLength ||
       (gameState.gameStatus !== GameStatus.Idle && gameState.gameStatus !== lastSaveRef.current.gameStatus)
@@ -711,7 +777,7 @@ export default function GamePage(): React.ReactNode {
         onSavePlaythrough({ storyId: activeStory.id, ...gameState });
       }, 100);
     }
-  }, [gameState.turn, gameState.history.length, gameState.gameStatus, activeStory, onSavePlaythrough]);
+  }, [shouldPersistPlaythrough, gameState.turn, gameState.history.length, gameState.gameStatus, activeStory, onSavePlaythrough]);
 
   // 监测玩家位置变化
   useEffect(() => {
@@ -1398,12 +1464,14 @@ export default function GamePage(): React.ReactNode {
         <div className="text-center">
           <h2 className="text-xl font-bold text-red-600 mb-2">Story not found</h2>
           <p className="text-gray-600 mb-4">The requested story could not be loaded.</p>
-          <button
-            onClick={onExit}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Back to Home
-          </button>
+          {!isPreviewMode && (
+            <button
+              onClick={handleExit}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Back to Home
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1423,7 +1491,7 @@ export default function GamePage(): React.ReactNode {
   const backgroundBlur = windowOpacityFactor > 0.05 ? `blur(${windowOpacityFactor * 4}px)` : 'none';
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-cover bg-center bg-zinc-950" style={{ backgroundImage: isBgLoaded && activeStory?.coverImageUrl ? `url(${activeStory.coverImageUrl})` : 'none'}}>
+    <div className={containerClassName} style={{ backgroundImage: isBgLoaded && activeStory?.coverImageUrl ? `url(${activeStory.coverImageUrl})` : 'none'}}>
         <div 
           className="absolute inset-0 z-0 transition-all duration-300"
           style={{
@@ -1435,9 +1503,11 @@ export default function GamePage(): React.ReactNode {
         <div style={gamePanelStyles} className="relative z-10 w-full h-full flex flex-col">
             <header className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/60 to-transparent flex items-center justify-between gap-2 text-sm" style={{ paddingTop: 'calc(0.5rem + env(safe-area-inset-top))', paddingLeft: 'calc(1rem + env(safe-area-inset-left))', paddingRight: 'calc(1rem + env(safe-area-inset-right))', paddingBottom: '1rem' }}>
                 <div className="flex items-center gap-2">
-                    <button onClick={onExit} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors" aria-label={t.back}>
-                        <ArrowLeftIcon className="w-5 h-5"/>
-                    </button>
+                    {!isPreviewMode && (
+                        <button onClick={handleExit} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors" aria-label={t.back}>
+                            <ArrowLeftIcon className="w-5 h-5"/>
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={() => setIsGameSettingsOpen(true)} className="p-2 text-gray-200 hover:text-white bg-black/30 rounded-full transition-colors" aria-label={t.gameSettings}>
