@@ -2,6 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { GameSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
+import UserSettingsService from '../services/userSettingsService';
 
 interface UseUserSettingsReturn {
   settings: GameSettings;
@@ -12,20 +13,39 @@ interface UseUserSettingsReturn {
   saveToCloud: () => Promise<boolean>;
   loadFromCloud: () => Promise<boolean>;
   resetToDefault: () => void;
+  hydrated: boolean;
 }
 
 const STORAGE_KEY = 'gemini-adventure-settings-v2';
+const hasWindow = typeof window !== 'undefined';
 
 type StoreState = {
   settings: GameSettings;
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
+  hydrated: boolean;
 };
 
 type StoreListener = () => void;
 
 const THEME_OPTIONS: ReadonlyArray<GameSettings['theme']> = ['light', 'dark', 'auto'];
+
+type CloudSyncState = {
+  subscribers: number;
+  currentUserId: string | null;
+  initialized: boolean;
+  inFlight: boolean;
+  unsubscribe: (() => void) | null;
+};
+
+const cloudSyncState: CloudSyncState = {
+  subscribers: 0,
+  currentUserId: null,
+  initialized: false,
+  inFlight: false,
+  unsubscribe: null,
+};
 
 const mergeWithDefaults = (settings: Partial<GameSettings> | null | undefined): GameSettings => {
   const merged: GameSettings = {
@@ -64,6 +84,7 @@ let storeState: StoreState = {
   isLoading: false,
   isSaving: false,
   error: null,
+  hydrated: hasWindow,
 };
 
 const listeners = new Set<StoreListener>();
@@ -91,6 +112,13 @@ const persistSettings = (settings: GameSettings) => {
   }
 };
 
+const cleanupCloudSubscription = () => {
+  if (cloudSyncState.unsubscribe) {
+    cloudSyncState.unsubscribe();
+    cloudSyncState.unsubscribe = null;
+  }
+};
+
 const updateStoreState = (partial: Partial<StoreState>) => {
   storeState = { ...storeState, ...partial };
   emit();
@@ -103,43 +131,164 @@ const setSettingsInternal = (value: GameSettings | ((prev: GameSettings) => Game
 
   const sanitized = mergeWithDefaults(next);
   persistSettings(sanitized);
-  updateStoreState({ settings: sanitized });
-};
-
-const resetToDefaultInternal = () => {
-  setSettingsInternal(DEFAULT_SETTINGS);
-};
-
-const saveToCloudInternal = async (): Promise<boolean> => {
-  // 云端同步当前禁用，保留接口返回成功
-  return true;
-};
-
-const loadFromCloudInternal = async (): Promise<boolean> => {
-  // 云端同步当前禁用，保留接口返回成功
-  return true;
+  updateStoreState({ settings: sanitized, hydrated: true });
+  return sanitized;
 };
 
 export function useUserSettings(): UseUserSettingsReturn {
   const { user } = useAuth();
   const snapshot = useSyncExternalStore<StoreState>(subscribe, getSnapshot, getSnapshot);
 
-  useEffect(() => {
-    if (!user) {
-      updateStoreState({ error: null, isLoading: false, isSaving: false });
+  const persistToCloud = useCallback(async (settingsToPersist: GameSettings) => {
+    if (!user?.id) {
+      return true;
     }
-  }, [user]);
+
+    updateStoreState({ isSaving: true, error: null });
+    try {
+      const success = await UserSettingsService.saveUserSettings(user.id, settingsToPersist);
+      if (!success) {
+        updateStoreState({ error: 'Failed to save settings to cloud' });
+      }
+      return success;
+    } catch (error) {
+      console.error('Failed to save settings to cloud:', error);
+      updateStoreState({ error: 'Failed to save settings to cloud' });
+      return false;
+    } finally {
+      updateStoreState({ isSaving: false });
+    }
+  }, [user?.id]);
+
+  const fetchSettingsFromCloud = useCallback(async (): Promise<GameSettings | null> => {
+    if (!user?.id) {
+      return null;
+    }
+
+    try {
+      const remoteSettings = await UserSettingsService.getUserSettings(user.id);
+      if (remoteSettings) {
+        return mergeWithDefaults(remoteSettings);
+      }
+
+      const fallback = mergeWithDefaults(storeState.settings);
+      const seeded = await UserSettingsService.saveUserSettings(user.id, fallback);
+      return seeded ? fallback : null;
+    } catch (error) {
+      console.error('Failed to load settings from cloud:', error);
+      updateStoreState({ error: 'Failed to load settings from cloud' });
+      return null;
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      cleanupCloudSubscription();
+      cloudSyncState.subscribers = 0;
+      cloudSyncState.currentUserId = null;
+      cloudSyncState.initialized = false;
+      cloudSyncState.inFlight = false;
+      updateStoreState({
+        settings: loadSettingsFromStorage(),
+        error: null,
+        isLoading: false,
+        isSaving: false,
+        hydrated: hasWindow,
+      });
+      return;
+    }
+
+    cloudSyncState.subscribers += 1;
+
+    if (cloudSyncState.currentUserId !== user.id) {
+      cleanupCloudSubscription();
+      cloudSyncState.currentUserId = user.id;
+      cloudSyncState.initialized = false;
+      cloudSyncState.inFlight = false;
+    }
+
+    let isEffectActive = true;
+
+    const ensureCloudSync = async () => {
+      if (cloudSyncState.initialized || cloudSyncState.inFlight) {
+        return;
+      }
+
+      cloudSyncState.inFlight = true;
+      updateStoreState({ isLoading: true, error: null });
+
+      try {
+        const remoteSettings = await fetchSettingsFromCloud();
+        if (!isEffectActive) {
+          return;
+        }
+
+        if (remoteSettings) {
+          persistSettings(remoteSettings);
+          updateStoreState({ settings: remoteSettings, isLoading: false, error: null, hydrated: true });
+        } else {
+          updateStoreState({ isLoading: false, hydrated: hasWindow });
+        }
+        cloudSyncState.initialized = true;
+      } finally {
+        cloudSyncState.inFlight = false;
+      }
+    };
+
+    void ensureCloudSync();
+
+    if (!cloudSyncState.unsubscribe) {
+      cloudSyncState.unsubscribe = UserSettingsService.subscribeToUserSettings(user.id, (incomingSettings) => {
+        if (!incomingSettings) {
+          return;
+        }
+        const merged = mergeWithDefaults(incomingSettings);
+        persistSettings(merged);
+        updateStoreState({ settings: merged, hydrated: true });
+      });
+    }
+
+    return () => {
+      isEffectActive = false;
+      cloudSyncState.subscribers = Math.max(0, cloudSyncState.subscribers - 1);
+
+      if (cloudSyncState.subscribers === 0) {
+        cleanupCloudSubscription();
+        cloudSyncState.currentUserId = null;
+        cloudSyncState.initialized = false;
+        cloudSyncState.inFlight = false;
+      }
+    };
+  }, [user?.id, fetchSettingsFromCloud]);
 
   const setSettings = useCallback(
     (value: GameSettings | ((prev: GameSettings) => GameSettings)) => {
-      setSettingsInternal(value);
+      const sanitized = setSettingsInternal(value);
+      void persistToCloud(sanitized);
     },
-    []
+    [persistToCloud]
   );
 
-  const saveToCloud = useCallback(async () => saveToCloudInternal(), []);
-  const loadFromCloud = useCallback(async () => loadFromCloudInternal(), []);
-  const resetToDefault = useCallback(() => resetToDefaultInternal(), []);
+  const saveToCloud = useCallback(async () => {
+    return persistToCloud(snapshot.settings);
+  }, [persistToCloud, snapshot.settings]);
+
+  const loadFromCloud = useCallback(async () => {
+    updateStoreState({ isLoading: true, error: null });
+    const remoteSettings = await fetchSettingsFromCloud();
+    updateStoreState({ isLoading: false });
+    if (remoteSettings) {
+      persistSettings(remoteSettings);
+      updateStoreState({ settings: remoteSettings, error: null, hydrated: true });
+      return true;
+    }
+    return false;
+  }, [fetchSettingsFromCloud]);
+
+  const resetToDefault = useCallback(() => {
+    const sanitized = setSettingsInternal(DEFAULT_SETTINGS);
+    void persistToCloud(sanitized);
+  }, [persistToCloud]);
 
   return {
     settings: snapshot.settings,
@@ -150,6 +299,7 @@ export function useUserSettings(): UseUserSettingsReturn {
     saveToCloud,
     loadFromCloud,
     resetToDefault,
+    hydrated: snapshot.hydrated,
   };
 }
 

@@ -10,7 +10,7 @@ import { initializePrompts } from './utils/promptInitializer'
 
 export default function App(): React.ReactNode {
   const { session, user, loading } = useAuth()
-  const { settings, isLoading: settingsLoading } = useUserSettings()
+  const { settings, hydrated: settingsHydrated } = useUserSettings()
 
   // Initialize prompts on app start
   useEffect(() => {
@@ -68,7 +68,7 @@ export default function App(): React.ReactNode {
   }, [settings.uiScale])
 
   // Show loading overlay while settings are loading (but not authentication)
-  if (settingsLoading) {
+  if (!settingsHydrated) {
     return (
       <LoadingOverlay
         messages={[
