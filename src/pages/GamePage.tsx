@@ -226,6 +226,7 @@ export default function GamePage({
     return existingPlaythrough?.placeholderValues || {};
   });
   const [processedStory, setProcessedStory] = useState<Story | null>(null);
+  const lastHydratedSnapshotRef = useRef<string | null>(null);
   
   // 跟踪上一次的玩家位置
   const prevPlayerLocationRef = useRef<{ mapId: string; locationId: string } | null>(null);
@@ -615,6 +616,23 @@ export default function GamePage({
       // Don't call handleExit, just close the modal and stay in the game
   }, []);
 
+  const buildPlaythroughSnapshot = useCallback((playthroughData: Playthrough) => JSON.stringify({
+    storyId: playthroughData.storyId,
+    history: playthroughData.history || [],
+    summaries: playthroughData.summaries || [],
+    grandSummaries: playthroughData.grandSummaries || [],
+    milestoneSummaries: playthroughData.milestoneSummaries || [],
+    turn: playthroughData.turn || 0,
+    userName: playthroughData.userName || 'Player',
+    charName: playthroughData.charName || 'Game Master',
+    gameStatus: playthroughData.gameStatus || GameStatus.Idle,
+    dialogue: playthroughData.dialogue || null,
+    placeholderValues: playthroughData.placeholderValues || {},
+    playerLocation: playthroughData.playerLocation || null,
+    mapData: playthroughData.mapData || null,
+    hasUnviewedLocationChange: playthroughData.hasUnviewedLocationChange || false,
+  }), []);
+
   const hydrateGameStateFromPlaythrough = useCallback((playthroughData: Playthrough) => {
     setGameState(prev => {
       const nextState: Omit<Playthrough, 'storyId'> = {
@@ -680,8 +698,16 @@ export default function GamePage({
 
   useEffect(() => {
     if (!shouldPersistPlaythrough || !existingPlaythrough) {
+      lastHydratedSnapshotRef.current = null;
       return;
     }
+
+    const snapshot = buildPlaythroughSnapshot(existingPlaythrough);
+    if (lastHydratedSnapshotRef.current === snapshot) {
+      return;
+    }
+
+    lastHydratedSnapshotRef.current = snapshot;
 
     console.log('[GamePage] Hydrating game state from playthrough', {
       storyId: existingPlaythrough.storyId,
@@ -690,7 +716,7 @@ export default function GamePage({
       hasPlaceholders: existingPlaythrough.placeholderValues && Object.keys(existingPlaythrough.placeholderValues).length > 0,
     });
     hydrateGameStateFromPlaythrough(existingPlaythrough);
-  }, [shouldPersistPlaythrough, existingPlaythrough, hydrateGameStateFromPlaythrough]);
+  }, [shouldPersistPlaythrough, existingPlaythrough, hydrateGameStateFromPlaythrough, buildPlaythroughSnapshot]);
 
   useEffect(() => {
     if (!activeStory) return;
