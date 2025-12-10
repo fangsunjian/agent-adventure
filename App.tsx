@@ -5,7 +5,6 @@ import { router } from './src/router'
 import { useAuth } from './contexts/AuthContext'
 import { useUserSettings } from './hooks/useUserSettings'
 import LoadingOverlay from './components/LoadingOverlay'
-import AuthPage from './pages/AuthPage'
 import { initializePrompts } from './utils/promptInitializer'
 
 export default function App(): React.ReactNode {
@@ -72,7 +71,7 @@ export default function App(): React.ReactNode {
     return (
       <LoadingOverlay
         messages={[
-          'Loading Settings...'
+          'Loading settings...'
         ]}
       />
     )
