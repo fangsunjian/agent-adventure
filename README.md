@@ -141,7 +141,7 @@ agent-adventure/
 
 ### 🔧 当前开发状态 (2025-09-26)
 
-**✅ V2重构已完成功能：**
+**✅ V2 重构已完成功能：**
 - ⚡ **现代化技术栈**: React 19 + TypeScript + Vite 7
 - 🎨 **UI组件系统**: shadcn/ui + Radix UI + Tailwind CSS 4.1
 - 🗂️ **状态管理**: TanStack Query + Zustand
@@ -167,7 +167,7 @@ agent-adventure/
 ## 开发环境设置
 
 ### 前置条件
-- Node.js 18+ 
+- Node.js 18+
 - npm 或 yarn
 - Supabase 账户和项目
 
