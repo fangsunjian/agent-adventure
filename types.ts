@@ -2,7 +2,7 @@ export interface SceneFragment {
   description: string;
   imagePrompt: string;
   actions: string[];
-  summary: string; // This is the single-turn summary
+  summary: string; // Single-turn summary
 }
 
 export interface Scene extends SceneFragment {
@@ -238,11 +238,11 @@ export interface Playthrough {
 }
 
 export interface PlaythroughFromDB {
-    id: string;
-    user_id: string;
-    story_id: string;
-    game_state: Omit<Playthrough, 'id' | 'userId' | 'storyId' | 'isPreview'>;
-    is_preview?: boolean | null;
+  id: string;
+  user_id: string;
+  story_id: string;
+  game_state: Omit<Playthrough, 'id' | 'userId' | 'storyId' | 'isPreview'>;
+  is_preview?: boolean | null;
 }
 
 // --- Dialogue System Types ---
