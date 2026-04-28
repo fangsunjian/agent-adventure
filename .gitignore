@@ -31,7 +31,7 @@ public/
 Starlight-Cafe/
 *storybook.log
 storybook-static
-.playwright-mcp/*
+/.playwright-mcp/
 *.mjs
 # BMAD (local only)
 .bmad-core/
