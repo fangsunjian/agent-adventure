@@ -13,7 +13,7 @@ Agent Adventure is an AI-driven dynamic text adventure game community platform. 
 ![Gameplay Screenshot](./docs/media/gameplay.png)
 
 ### Demo Video
-![Demo Video](./docs/media/demo_video.mp4)
+<video src="https://github.com/fangsunjian/agent-adventure/raw/main/docs/media/demo_video.mp4" controls="controls" muted="muted" style="max-width: 100%;"></video>
 
 ### Character and Scene Editor
 ![Character Editor 1](./docs/media/character_editor_1.png)
