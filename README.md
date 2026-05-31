@@ -12,9 +12,6 @@ Agent Adventure 是一个由 AI 驱动的动态文字冒险游戏社区平台。
 ### 游戏体验
 ![Gameplay Screenshot](./docs/media/gameplay.png)
 
-### 视频演示
-![Demo Video](./docs/media/demo_video.mp4)
-
 ### 角色与场景编辑
 ![Character Editor 1](./docs/media/character_editor_1.png)
 ![Character Editor 2](./docs/media/character_editor_2.png)
