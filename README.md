@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-English | [简体中文](./README_zh.md)
+English | [简体中文](./README_zh.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md)
 
 Agent Adventure is an AI-driven dynamic text adventure game community platform. It leverages Google Gemini for narrative generation and Imagen for illustrations to create a unique and immersive storytelling experience.
 
