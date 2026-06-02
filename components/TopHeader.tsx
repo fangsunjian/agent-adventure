@@ -34,6 +34,42 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
     const isActive = (path: string) => {
         if (path === '/' && location.pathname === '/') return true;
         if (path !== '/' && location.pathname.startsWith(path)) return true;
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import type { Page, Language } from '../types';
+import { translations } from '../constants';
+import { useAuth } from '../contexts/AuthContext';
+import { UserIcon, HomeIcon, SearchIcon, PlusIcon } from './icons';
+import { useAppStore } from '../src/stores/appStore';
+
+interface TopHeaderProps {
+    activePage: Page;
+    language: Language;
+}
+
+const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { user } = useAuth();
+    const { setModal } = useAppStore();
+    const t = translations[language];
+
+    const handleLoginClick = () => {
+        navigate('/auth');
+    };
+
+    const handleProfileClick = () => {
+        navigate('/profile');
+    };
+
+    const handleCreateClick = () => {
+        setModal('newGame', true);
+    };
+
+    // Check if current path is active
+    const isActive = (path: string) => {
+        if (path === '/' && location.pathname === '/') return true;
+        if (path !== '/' && location.pathname.startsWith(path)) return true;
         return false;
     };
 
@@ -41,9 +77,9 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
     const renderMobileHeader = () => (
         <div className="h-16 flex items-center justify-between px-4 md:px-6 bg-white/80 dark:bg-zinc-950/70 backdrop-blur-sm border-b border-gray-200/80 dark:border-zinc-800/80">
             <h1 className="text-3xl font-bold font-serif text-gray-800 dark:text-zinc-200">
-                {activePage === 'home' && 'Featured Stories'}
-                {activePage === 'explore' && 'Explore Stories'}
-                {activePage === 'profile' && 'Profile'}
+                {activePage === 'home' && t.titleFeatured}
+                {activePage === 'explore' && t.titleExplore}
+                {activePage === 'profile' && t.titleProfile}
             </h1>
 
             <div className="flex items-center gap-3">
@@ -60,7 +96,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         onClick={handleLoginClick}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
                     >
-                        登录
+                        {t.navLogin}
                     </button>
                 )}
             </div>
@@ -88,7 +124,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         }`}
                     >
                         <HomeIcon className="w-5 h-5" />
-                        <span className="text-sm font-medium">主页</span>
+                        <span className="text-sm font-medium">{t.navHome}</span>
                     </button>
                     <button
                         onClick={() => navigate('/explore')}
@@ -99,7 +135,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         }`}
                     >
                         <SearchIcon className="w-5 h-5" />
-                        <span className="text-sm font-medium">发现</span>
+                        <span className="text-sm font-medium">{t.navExplore}</span>
                     </button>
                 </nav>
             </div>
@@ -110,7 +146,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                     <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
                     <input
                         type="text"
-                        placeholder="Search"
+                        placeholder={t.exploreSearchPlaceholder}
                         className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                 </div>
@@ -125,7 +161,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-indigo-600 dark:text-gray-300 dark:hover:text-white rounded-lg transition-colors text-sm"
                     >
                         <UserIcon className="w-4 h-4" />
-                        <span>我</span>
+                        <span>{t.navProfile}</span>
                     </button>
                 ) : (
                     <button
@@ -133,7 +169,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                         className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-indigo-600 dark:text-gray-300 dark:hover:text-white rounded-lg transition-colors text-sm"
                     >
                         <UserIcon className="w-4 h-4" />
-                        <span>登录</span>
+                        <span>{t.navLogin}</span>
                     </button>
                 )}
 
@@ -142,13 +178,13 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
                     onClick={user ? () => navigate('/profile') : handleLoginClick}
                     className="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors text-sm"
                 >
-                    历史
+                    {t.navHistory}
                 </button>
                 <button
                     onClick={user ? handleCreateClick : handleLoginClick}
                     className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors text-sm font-medium"
                 >
-                    创作
+                    {t.navCreate}
                 </button>
             </div>
         </div>
