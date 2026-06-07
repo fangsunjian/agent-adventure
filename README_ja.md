@@ -13,7 +13,10 @@ Agent Adventure は、AI を活用したダイナミックなテキストアド�
 ![Gameplay Screenshot](./docs/media/gameplay.png)
 
 ### デモ動画
-![Demo Video](./docs/media/demo_video.mp4)
+[デモ動画](./docs/media/demo_video.mp4)
+
+### ストア
+![Store Screenshot](./docs/media/store.png)
 
 ### キャラクター＆シーンエディター
 ![Character Editor 1](./docs/media/character_editor_1.png)

@@ -13,7 +13,10 @@ Agent Adventure는 AI 기반의 다이내믹 텍스트 어드벤처 게임 커�
 ![Gameplay Screenshot](./docs/media/gameplay.png)
 
 ### 데모 비디오
-![Demo Video](./docs/media/demo_video.mp4)
+[데모 비디오](./docs/media/demo_video.mp4)
+
+### 상점
+![Store Screenshot](./docs/media/store.png)
 
 ### 캐릭터 및 장면 편집기
 ![Character Editor 1](./docs/media/character_editor_1.png)
