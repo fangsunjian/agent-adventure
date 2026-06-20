@@ -34,42 +34,7 @@ const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
     const isActive = (path: string) => {
         if (path === '/' && location.pathname === '/') return true;
         if (path !== '/' && location.pathname.startsWith(path)) return true;
-import React from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import type { Page, Language } from '../types';
-import { translations } from '../constants';
-import { useAuth } from '../contexts/AuthContext';
-import { UserIcon, HomeIcon, SearchIcon, PlusIcon } from './icons';
-import { useAppStore } from '../src/stores/appStore';
 
-interface TopHeaderProps {
-    activePage: Page;
-    language: Language;
-}
-
-const TopHeader: React.FC<TopHeaderProps> = ({ activePage, language }) => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const { user } = useAuth();
-    const { setModal } = useAppStore();
-    const t = translations[language];
-
-    const handleLoginClick = () => {
-        navigate('/auth');
-    };
-
-    const handleProfileClick = () => {
-        navigate('/profile');
-    };
-
-    const handleCreateClick = () => {
-        setModal('newGame', true);
-    };
-
-    // Check if current path is active
-    const isActive = (path: string) => {
-        if (path === '/' && location.pathname === '/') return true;
-        if (path !== '/' && location.pathname.startsWith(path)) return true;
         return false;
     };
 
